@@ -13,6 +13,8 @@ import {
   Phone,
   Mail,
   MapPin,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -96,6 +98,8 @@ const EMPTY_FORM: ClienteFormData = {
 export function ClientesView() {
   const [search, setSearch] = useState('')
   const [estadoFilter, setEstadoFilter] = useState('TODOS')
+  const [page, setPage] = useState(0)
+  const pageSize = 100
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<Cliente | null>(null)
   const [form, setForm] = useState<ClienteFormData>(EMPTY_FORM)
@@ -106,11 +110,33 @@ export function ClientesView() {
     const params = new URLSearchParams()
     if (search) params.set('q', search)
     if (estadoFilter !== 'TODOS') params.set('estado', estadoFilter)
-    const qs = params.toString()
-    return `/api/clientes${qs ? '?' + qs : ''}`
-  }, [search, estadoFilter])
+    params.set('limit', String(pageSize))
+    params.set('offset', String(page * pageSize))
+    return `/api/clientes?${params.toString()}`
+  }, [search, estadoFilter, page])
 
-  const { data, loading, error, refetch } = useFetch<Cliente[]>(url)
+  const { data: resp, loading, error, refetch } = useFetch<{
+    data: Cliente[]
+    total: number
+    limit: number
+    offset: number
+  }>(url)
+
+  // Resetear página al cambiar filtros
+  const handleSearchChange = (v: string) => {
+    setSearch(v)
+    setPage(0)
+  }
+  const handleEstadoChange = (v: string) => {
+    setEstadoFilter(v)
+    setPage(0)
+  }
+
+  const data = resp?.data || []
+  const total = resp?.total || 0
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  const canPrev = page > 0
+  const canNext = page + 1 < totalPages
 
   const openCreate = () => {
     setEditing(null)
@@ -181,12 +207,12 @@ export function ClientesView() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => handleSearchChange(e.target.value)}
             placeholder="Buscar por nombre, NIF, ciudad o contacto..."
             className="pl-9"
           />
         </div>
-        <Select value={estadoFilter} onValueChange={setEstadoFilter}>
+        <Select value={estadoFilter} onValueChange={handleEstadoChange}>
           <SelectTrigger className="w-[160px]">
             <SelectValue placeholder="Estado" />
           </SelectTrigger>
@@ -214,7 +240,7 @@ export function ClientesView() {
             </div>
           ) : error ? (
             <div className="p-8 text-rose-700 text-sm">Error: {error}</div>
-          ) : !data || data.length === 0 ? (
+          ) : data.length === 0 ? (
             <div className="p-12 text-center">
               <Users className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
               <p className="text-sm font-medium">No hay clientes que mostrar</p>
@@ -303,6 +329,58 @@ export function ClientesView() {
           )}
         </CardContent>
       </Card>
+
+      {/* Paginación */}
+      {total > pageSize && (
+        <div className="flex items-center justify-between gap-2 text-[12px] text-muted-foreground">
+          <p>
+            Mostrando <strong className="text-foreground tabular-nums">{data.length}</strong> de{' '}
+            <strong className="text-foreground tabular-nums">{total.toLocaleString('es-ES')}</strong> clientes · Página{' '}
+            <strong className="text-foreground tabular-nums">{page + 1}</strong> de{' '}
+            <strong className="text-foreground tabular-nums">{totalPages}</strong>
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage(0)}
+              disabled={!canPrev}
+              className="h-8 px-2"
+            >
+              <ChevronLeft className="w-3 h-3 mr-1" />
+              Inicio
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              disabled={!canPrev}
+              className="h-8 w-8 p-0"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+              disabled={!canNext}
+              className="h-8 w-8 p-0"
+            >
+              <ChevronRight className="w-3.5 h-3.5" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage(totalPages - 1)}
+              disabled={!canNext}
+              className="h-8 px-2"
+            >
+              Final
+              <ChevronRight className="w-3 h-3 ml-1" />
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Diálogo create/edit */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

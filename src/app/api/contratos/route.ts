@@ -8,27 +8,36 @@ export async function GET(request: NextRequest) {
     const q = searchParams.get('q')?.trim()
     const estado = searchParams.get('estado')
     const clienteId = searchParams.get('clienteId')
+    const limit = Math.min(Number(searchParams.get('limit') || '200'), 500)
+    const offset = Math.max(Number(searchParams.get('offset') || '0'), 0)
 
     const where: Record<string, unknown> = {}
     if (q) {
       where.OR = [
         { numero: { contains: q } },
         { cliente: { nombre: { contains: q } } },
+        { descripcionBC: { contains: q } },
       ]
     }
     if (estado && estado !== 'TODOS') where.estado = estado
     if (clienteId) where.clienteId = clienteId
 
-    const contratos = await db.contrato.findMany({
-      where,
-      orderBy: { fechaFin: 'desc' },
-      include: {
-        cliente: true,
-        equipos: { include: { equipo: true } },
-        _count: { select: { ordenesTrabajo: true } },
-      },
-    })
-    return NextResponse.json(contratos)
+    const [contratos, total] = await Promise.all([
+      db.contrato.findMany({
+        where,
+        orderBy: { fechaFin: 'desc' },
+        include: {
+          cliente: true,
+          equipos: { include: { equipo: true } },
+          _count: { select: { ordenesTrabajo: true } },
+        },
+        take: limit,
+        skip: offset,
+      }),
+      db.contrato.count({ where }),
+    ])
+    // Devolver objeto con datos + metadatos de paginación
+    return NextResponse.json({ data: contratos, total, limit, offset })
   } catch (error) {
     console.error('GET /api/contratos error:', error)
     return NextResponse.json({ error: 'Error al obtener contratos' }, { status: 500 })

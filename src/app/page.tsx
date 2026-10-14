@@ -11,6 +11,7 @@ import {
   HardHat,
   Menu,
   X,
+  Database,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { DashboardView } from '@/components/views/dashboard-view'
@@ -19,6 +20,7 @@ import { EquiposView } from '@/components/views/equipos-view'
 import { ContratosView } from '@/components/views/contratos-view'
 import { OrdenesView } from '@/components/views/ordenes-view'
 import { CalendarioView } from '@/components/views/calendario-view'
+import { SyncView } from '@/components/views/sync-view'
 
 type ViewKey =
   | 'dashboard'
@@ -27,6 +29,7 @@ type ViewKey =
   | 'contratos'
   | 'ordenes'
   | 'calendario'
+  | 'sync'
 
 interface NavItem {
   key: ViewKey
@@ -72,6 +75,12 @@ const NAV_ITEMS: NavItem[] = [
     icon: CalendarDays,
     description: 'Vista mensual de intervenciones',
   },
+  {
+    key: 'sync',
+    label: 'Sincronizar BC',
+    icon: Database,
+    description: 'Importar contratos desde Business Central',
+  },
 ]
 
 export default function Home() {
@@ -110,6 +119,8 @@ export default function Home() {
         return <OrdenesView />
       case 'calendario':
         return <CalendarioView onNavigate={setActiveView} />
+      case 'sync':
+        return <SyncView />
       default:
         return null
     }

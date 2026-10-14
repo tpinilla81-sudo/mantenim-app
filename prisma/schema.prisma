@@ -14,24 +14,26 @@ datasource db {
 // CLIENTE — Empresa cliente (propietaria de la maquinaria)
 // ============================================================
 model Cliente {
-  id              String       @id @default(cuid())
-  nombre          String
-  nif             String
-  email           String?
-  telefono        String?
-  direccion       String?
-  ciudad          String?
-  codigoPostal    String?
-  contactoNombre  String?
-  contactoEmail   String?
+  id               String       @id @default(cuid())
+  nombre           String
+  nif              String
+  // Código de cliente en Business Central (Nº cliente en el Excel)
+  codigoExterno    String?      @unique
+  email            String?
+  telefono         String?
+  direccion        String?
+  ciudad           String?
+  codigoPostal     String?
+  contactoNombre   String?
+  contactoEmail    String?
   contactoTelefono String?
-  estado          String       @default("ACTIVO") // ACTIVO | INACTIVO
-  notas           String?
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
+  estado           String       @default("ACTIVO") // ACTIVO | INACTIVO
+  notas            String?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
 
-  equipos         Equipo[]
-  contratos       Contrato[]
+  equipos          Equipo[]
+  contratos        Contrato[]
 }
 
 // ============================================================
@@ -66,14 +68,14 @@ model Equipo {
 // ============================================================
 model Contrato {
   id                    String   @id @default(cuid())
-  numero                String   @unique
+  numero                String   @unique // Nº Contrato BC
   clienteId             String
   cliente               Cliente  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
 
   fechaInicio           DateTime
   fechaFin              DateTime
   tipoMantenimiento     String   @default("PREVENTIVO") // PREVENTIVO | CORRECTIVO | MIXTO
-  periodicidadMeses     Int      @default(3) // cada cuántos meses se realiza mantenimiento
+  periodicidadMeses     Int      @default(3)
   precioAnual           Float
   precioVisita          Float?
   estado                String   @default("ACTIVO") // ACTIVO | VENCIDO | SUSPENDIDO | CANCELADO
@@ -81,6 +83,17 @@ model Contrato {
   condiciones           String?
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
+
+  // Campos adicionales sincronizados desde Business Central
+  descripcionBC         String?  // Descripción del Excel
+  codVendedor           String?  // Cód. vendedor
+  codDelegacion         String?  // Código Delegacion
+  codGrupoContrato      String?  // Cód. grupo contrato
+  codPeriodoPrecio      String?  // Periodo actualiz. precio (e.g. "1Y")
+  ubicacionEquipo       String?  // Cód. dirección envío cliente
+  ultimaFactura         DateTime? // Últ. fecha factura
+  proximaFactura        DateTime? // Siguiente fecha factura
+  importePorPeriodo     Float?  // Importe por periodo original (para no perderlo)
 
   equipos               ContratoEquipo[]
   ordenesTrabajo        OrdenTrabajo[]
@@ -141,4 +154,26 @@ model OrdenTrabajo {
   importe         Float?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
+}
+
+// ============================================================
+// SYNC LOG — Historial de sincronizaciones con Business Central
+// ============================================================
+model SyncLog {
+  id              String   @id @default(cuid())
+  fecha           DateTime @default(now())
+  fileName        String
+  fileSize        Int
+  rowsTotal       Int      @default(0)
+  rowsCreated     Int      @default(0)
+  rowsUpdated     Int      @default(0)
+  rowsSkipped     Int      @default(0)
+  rowsFailed      Int      @default(0)
+  clientesNuevos  Int      @default(0)
+  contratosNuevos Int      @default(0)
+  contratosActualizados Int @default(0)
+  duracionMs      Int      @default(0)
+  status          String   @default("OK") // OK | PARCIAL | ERROR
+  errores         String?  // JSON string con lista de errores (truncado)
+  syncType        String   @default("EXCEL_BC") // EXCEL_BC | API_BC | MANUAL
 }

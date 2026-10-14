@@ -11,6 +11,8 @@ import {
   TrendingUp,
   AlertTriangle,
   ArrowRight,
+  Database,
+  Info,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -23,7 +25,21 @@ import {
 } from '@/lib/constants'
 import { cn } from '@/lib/utils'
 
-type ViewKey = 'dashboard' | 'clientes' | 'equipos' | 'contratos' | 'ordenes' | 'calendario'
+type ViewKey = 'dashboard' | 'clientes' | 'equipos' | 'contratos' | 'ordenes' | 'calendario' | 'sync'
+
+interface SyncStatus {
+  ultimoSync: {
+    fecha: string
+    fileName: string
+    rowsTotal: number
+    status: string
+  } | null
+  diasDesdeUltimoSync: number | null
+  syncCaducado: boolean
+  umbralCaducidadDias: number
+  totalClientes: number
+  totalContratos: number
+}
 
 interface DashboardData {
   kpis: {
@@ -106,6 +122,7 @@ function MiniBar({ label, value, max, color }: { label: string; value: number; m
 
 export function DashboardView({ onNavigate }: { onNavigate: (v: ViewKey) => void }) {
   const { data, loading, error } = useFetch<DashboardData>('/api/dashboard')
+  const { data: syncStatus } = useFetch<SyncStatus>('/api/sync')
 
   if (loading) {
     return (
@@ -142,6 +159,55 @@ export function DashboardView({ onNavigate }: { onNavigate: (v: ViewKey) => void
 
   return (
     <div className="p-4 lg:p-8 space-y-6 max-w-[1400px]">
+      {/* Banner de sincronización caducada */}
+      {syncStatus && (
+        !syncStatus.ultimoSync ? (
+          <div className="flex items-start gap-3 p-4 bg-sky-50 border border-sky-200 rounded-lg">
+            <Info className="w-5 h-5 text-sky-600 mt-0.5 shrink-0" />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-sky-900">
+                Aún no has sincronizado con Business Central
+              </p>
+              <p className="text-[12px] text-sky-700 mt-1">
+                Sube el Excel de "Contratos de servicio" para tener tus contratos reales cargados en la app.
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-sky-300 text-sky-700 hover:bg-sky-100"
+              onClick={() => onNavigate('sync')}
+            >
+              <Database className="w-3.5 h-3.5 mr-1.5" />
+              Sincronizar
+            </Button>
+          </div>
+        ) : syncStatus.syncCaducado ? (
+          <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-300 rounded-lg">
+            <AlertTriangle className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-amber-900">
+                Sincronización con Business Central caducada
+              </p>
+              <p className="text-[12px] text-amber-700 mt-1">
+                Han pasado <strong>{syncStatus.diasDesdeUltimoSync} días</strong> desde la última
+                subida del Excel ({formatFecha(syncStatus.ultimoSync.fecha)}). Te recomendamos
+                volver a exportar y subir el archivo actualizado.
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-amber-300 text-amber-700 hover:bg-amber-100"
+              onClick={() => onNavigate('sync')}
+            >
+              <Database className="w-3.5 h-3.5 mr-1.5" />
+              Subir Excel
+            </Button>
+          </div>
+        ) : null
+      )}
+
       {/* KPI cards */}
       <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiCard

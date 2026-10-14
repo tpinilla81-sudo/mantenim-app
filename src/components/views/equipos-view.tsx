@@ -117,7 +117,10 @@ export function EquiposView() {
   const [saving, setSaving] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<Equipo | null>(null)
 
-  const { data: clientesList } = useFetch<ClienteOption[]>('/api/clientes')
+  const { data: clientesResp } = useFetch<{ data: ClienteOption[]; total: number }>(
+    '/api/clientes?limit=500'
+  )
+  const clientesList = clientesResp?.data || []
 
   const url = useMemo(() => {
     const params = new URLSearchParams()

@@ -154,9 +154,10 @@ export function OrdenesView() {
   // Contratos disponibles para el equipo seleccionado
   const equipoSeleccionado = equiposList?.find((e) => e.id === form.equipoId)
   const contratosUrl = equipoSeleccionado
-    ? `/api/contratos?clienteId=${equipoSeleccionado.cliente.id}`
+    ? `/api/contratos?clienteId=${equipoSeleccionado.cliente.id}&limit=500`
     : null
-  const { data: contratosDisponibles } = useFetch<ContratoOption[]>(contratosUrl)
+  const { data: contratosResp } = useFetch<{ data: ContratoOption[]; total: number }>(contratosUrl)
+  const contratosDisponibles = contratosResp?.data || []
 
   const url = useMemo(() => {
     const params = new URLSearchParams()

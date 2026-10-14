@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 
-// GET /api/clientes — listado con búsqueda opcional
+// GET /api/clientes — listado con búsqueda opcional y paginación
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const q = searchParams.get('q')?.trim()
     const estado = searchParams.get('estado')
+    const limit = Math.min(Number(searchParams.get('limit') || '200'), 500)
+    const offset = Math.max(Number(searchParams.get('offset') || '0'), 0)
 
     const where: Record<string, unknown> = {}
     if (q) {
@@ -19,16 +21,21 @@ export async function GET(request: NextRequest) {
     }
     if (estado && estado !== 'TODOS') where.estado = estado
 
-    const clientes = await db.cliente.findMany({
-      where,
-      orderBy: { nombre: 'asc' },
-      include: {
-        _count: {
-          select: { equipos: true, contratos: true },
+    const [clientes, total] = await Promise.all([
+      db.cliente.findMany({
+        where,
+        orderBy: { nombre: 'asc' },
+        include: {
+          _count: {
+            select: { equipos: true, contratos: true },
+          },
         },
-      },
-    })
-    return NextResponse.json(clientes)
+        take: limit,
+        skip: offset,
+      }),
+      db.cliente.count({ where }),
+    ])
+    return NextResponse.json({ data: clientes, total, limit, offset })
   } catch (error) {
     console.error('GET /api/clientes error:', error)
     return NextResponse.json({ error: 'Error al obtener clientes' }, { status: 500 })
