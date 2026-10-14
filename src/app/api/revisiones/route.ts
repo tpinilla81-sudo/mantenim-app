@@ -14,6 +14,13 @@ export async function GET(request: NextRequest) {
     const limiteFecha = new Date(hoy)
     limiteFecha.setDate(limiteFecha.getDate() + dias)
 
+    // Marcar TODAS las PROGRAMADAS con fecha pasada como VENCIDAS (en bulk)
+    // Esto cubre las revisiones con fechas antiguas que no se marcaron antes
+    await db.revisionProgramada.updateMany({
+      where: { estado: 'PROGRAMADA', fechaProgramada: { lt: hoy } },
+      data: { estado: 'VENCIDA' },
+    })
+
     // Filtro de estado
     const whereEstado = estado && estado !== 'TODAS' ? { estado } : {}
     // Filtro de fecha: si es PROGRAMADA, mostrar las que tocan en próximos N días O ya vencidas
@@ -35,29 +42,6 @@ export async function GET(request: NextRequest) {
         },
       },
     })
-
-    // Marcar como VENCIDA las revisiones PROGRAMADAS cuya fecha ya pasó
-    const vencidas = revisiones.filter(
-      (r) => r.estado === 'PROGRAMADA' && r.fechaProgramada < hoy
-    )
-    if (vencidas.length > 0 && (!estado || estado === 'TODAS' || estado === 'PROGRAMADA')) {
-      await db.$transaction(
-        vencidas.map((r) =>
-          db.revisionProgramada.update({
-            where: { id: r.id },
-            data: { estado: 'VENCIDA' },
-          })
-        )
-      )
-      // Volver a consultar para tener el estado actualizado
-      const refetch = await db.revisionProgramada.findMany({
-        where,
-        orderBy: { fechaProgramada: 'asc' },
-        take: limite,
-        include: { equipo: { include: { cliente: true } } },
-      })
-      return NextResponse.json(refetch)
-    }
 
     // Estadísticas para el dashboard
     const totalProgramadas = await db.revisionProgramada.count({
