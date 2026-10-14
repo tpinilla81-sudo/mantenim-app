@@ -12,6 +12,7 @@ import {
   Menu,
   X,
   Database,
+  CalendarClock,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { DashboardView } from '@/components/views/dashboard-view'
@@ -21,6 +22,7 @@ import { ContratosView } from '@/components/views/contratos-view'
 import { OrdenesView } from '@/components/views/ordenes-view'
 import { CalendarioView } from '@/components/views/calendario-view'
 import { SyncView } from '@/components/views/sync-view'
+import { RevisionesView } from '@/components/views/revisiones-view'
 
 type ViewKey =
   | 'dashboard'
@@ -30,6 +32,7 @@ type ViewKey =
   | 'ordenes'
   | 'calendario'
   | 'sync'
+  | 'revisiones'
 
 interface NavItem {
   key: ViewKey
@@ -81,6 +84,12 @@ const NAV_ITEMS: NavItem[] = [
     icon: Database,
     description: 'Importar contratos desde Business Central',
   },
+  {
+    key: 'revisiones',
+    label: 'Revisiones',
+    icon: CalendarClock,
+    description: 'Calendario de revisiones calculadas',
+  },
 ]
 
 export default function Home() {
@@ -121,6 +130,8 @@ export default function Home() {
         return <CalendarioView onNavigate={setActiveView} />
       case 'sync':
         return <SyncView />
+      case 'revisiones':
+        return <RevisionesView />
       default:
         return null
     }

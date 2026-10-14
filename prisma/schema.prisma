@@ -41,8 +41,8 @@ model Cliente {
 // ============================================================
 model Equipo {
   id                String   @id @default(cuid())
-  codigo            String   @unique // código interno
-  tipo              String   // GRUA_TORRE | GRUA_MOVIL | GRUA_PUENTE | MONTACARGAS_COMBUSTION | MONTACARGAS_ELECTRICO
+  codigo            String   @unique // código interno (ej. "005060" o "EQ-001")
+  tipo              String   // GRUA_TORRE | GRUA_MOVIL | GRUA_PUENTE | MONTACARGAS_COMBUSTION | MONTACARGAS_ELECTRICO | DESCONOCIDO
   marca             String
   modelo            String
   numeroSerie       String   @unique
@@ -50,7 +50,7 @@ model Equipo {
   ubicacion         String?
   fechaInstalacion  DateTime?
   estado            String   @default("OPERATIVO") // OPERATIVO | EN_MANTENIMIENTO | FUERA_SERVICIO
-  horasUso          Int      @default(0)
+  horasUso          Int      @default(0) // contador actual de horas
   ultimaRevision    DateTime?
   notas             String?
   createdAt         DateTime @default(now())
@@ -59,8 +59,41 @@ model Equipo {
   clienteId         String
   cliente           Cliente  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
 
+  // Campos para cálculo de revisiones
+  tipoRevision      String   @default("POR_HORAS") // POR_HORAS | POR_CONTRATO
+  // Para equipos POR_HORAS: umbral actual aplicable (250 / 500 / 1000)
+  umbralHorasActual  Int?     // ej. 250 para próxima pequeña, 500 para media, 1000 para gran
+  // Próxima revisión (calculada al importar / actualizar horas)
+  proximaRevisionHoras Int?   // ej. 3250 (umbral siguiente a horasUso)
+  proximaRevisionFecha DateTime? // para POR_CONTRATO: fecha calendaria
+  ultimoMantenimientoHoras Int? // horas del equipo en la última revisión
+  codigoProductoBC  String?  @unique // Nº prod. servicio en Business Central
+  contratoActivoId  String?  // CAI# actual (referencia texto libre)
+
   contratos         ContratoEquipo[]
   ordenesTrabajo    OrdenTrabajo[]
+  revisiones        RevisionProgramada[]
+}
+
+// ============================================================
+// REVISION PROGRAMADA — Calendario de revisiones calculadas
+// ============================================================
+model RevisionProgramada {
+  id                String   @id @default(cuid())
+  equipoId          String
+  equipo            Equipo   @relation(fields: [equipoId], references: [id], onDelete: Cascade)
+
+  tipo              String   // POR_HORAS | POR_CONTRATO
+  nivel             String?  // PEQUENA (250h) | MEDIA (500h) | GRANDE (1000h) | CONTRATO
+  horasObjetivo     Int?     // para POR_HORAS: umbral de horas (ej. 3250)
+  fechaProgramada   DateTime // fecha calculada en la que debería hacerse
+  fechaEstimadaCumplimiento DateTime? // estimación de cuándo se alcanzarán las horas
+  estado            String   @default("PROGRAMADA") // PROGRAMADA | COMPLETADA | VENCIDA
+  fechaRealizada    DateTime?
+  ordenTrabajoId    String?  // si se generó OT automática
+  notas             String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 }
 
 // ============================================================

@@ -48,7 +48,15 @@ import {
   EQUIPO_TIPO_ICONS,
   formatFecha,
   isoToInputDate,
+  diasHasta,
 } from '@/lib/constants'
+import {
+  ChevronLeft,
+  ChevronRight,
+  CalendarClock,
+  ToggleLeft,
+  ToggleRight,
+} from 'lucide-react'
 
 interface ClienteOption {
   id: string
@@ -72,6 +80,14 @@ interface Equipo {
   notas: string | null
   clienteId: string
   cliente: { id: string; nombre: string }
+  // Campos nuevos (pueden no existir si equipo creado antes de la actualización)
+  tipoRevision?: string
+  umbralHorasActual?: number | null
+  proximaRevisionHoras?: number | null
+  proximaRevisionFecha?: string | null
+  ultimoMantenimientoHoras?: number | null
+  codigoProductoBC?: string | null
+  contratoActivoId?: string | null
 }
 
 interface EquipoFormData {
@@ -111,11 +127,15 @@ export function EquiposView() {
   const [tipoFilter, setTipoFilter] = useState('TODOS')
   const [estadoFilter, setEstadoFilter] = useState('TODOS')
   const [clienteFilter, setClienteFilter] = useState('TODOS')
+  const [tipoRevisionFilter, setTipoRevisionFilter] = useState('TODOS')
+  const [page, setPage] = useState(0)
+  const pageSize = 100
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<Equipo | null>(null)
   const [form, setForm] = useState<EquipoFormData>(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<Equipo | null>(null)
+  const [toggleTarget, setToggleTarget] = useState<Equipo | null>(null)
 
   const { data: clientesResp } = useFetch<{ data: ClienteOption[]; total: number }>(
     '/api/clientes?limit=500'
@@ -128,11 +148,33 @@ export function EquiposView() {
     if (tipoFilter !== 'TODOS') params.set('tipo', tipoFilter)
     if (estadoFilter !== 'TODOS') params.set('estado', estadoFilter)
     if (clienteFilter !== 'TODOS') params.set('clienteId', clienteFilter)
-    const qs = params.toString()
-    return `/api/equipos${qs ? '?' + qs : ''}`
-  }, [search, tipoFilter, estadoFilter, clienteFilter])
+    if (tipoRevisionFilter !== 'TODOS') params.set('tipoRevision', tipoRevisionFilter)
+    params.set('limit', String(pageSize))
+    params.set('offset', String(page * pageSize))
+    return `/api/equipos?${params.toString()}`
+  }, [search, tipoFilter, estadoFilter, clienteFilter, tipoRevisionFilter, page])
 
-  const { data, loading, error, refetch } = useFetch<Equipo[]>(url)
+  const { data: resp, loading, error, refetch } = useFetch<{
+    data: Equipo[]
+    total: number
+    limit: number
+    offset: number
+  }>(url)
+
+  const data = resp?.data || []
+  const total = resp?.total || 0
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  const canPrev = page > 0
+  const canNext = page + 1 < totalPages
+
+  const handleSearchChange = (v: string) => {
+    setSearch(v)
+    setPage(0)
+  }
+  const handleTipoRevisionFilterChange = (v: string) => {
+    setTipoRevisionFilter(v)
+    setPage(0)
+  }
 
   // Siguiente código automático
   useEffect(() => {
@@ -213,6 +255,20 @@ export function EquiposView() {
     }
   }
 
+  const handleToggleRevision = async (eq: Equipo) => {
+    try {
+      const res = await fetch(`/api/equipos/${eq.id}/toggle-revision`, { method: 'POST' })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error)
+      toast.success(
+        `${eq.codigo} → ${json.nuevoTipo === 'POR_CONTRATO' ? 'Por contrato (M1/M2)' : 'Por horas'}`
+      )
+      refetch()
+    } catch (err) {
+      toast.error('Error al alternar tipo de revisión', { description: (err as Error).message })
+    }
+  }
+
   return (
     <div className="p-4 lg:p-8 space-y-5 max-w-[1400px]">
       {/* Toolbar */}
@@ -221,7 +277,7 @@ export function EquiposView() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => handleSearchChange(e.target.value)}
             placeholder="Buscar por código, marca, modelo, serie..."
             className="pl-9"
           />
@@ -246,6 +302,16 @@ export function EquiposView() {
             {Object.entries(EQUIPO_ESTADOS).map(([k, v]) => (
               <SelectItem key={k} value={k}>{v}</SelectItem>
             ))}
+          </SelectContent>
+        </Select>
+        <Select value={tipoRevisionFilter} onValueChange={handleTipoRevisionFilterChange}>
+          <SelectTrigger className="w-[160px]">
+            <SelectValue placeholder="Tipo revisión" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="TODOS">Todas las revisiones</SelectItem>
+            <SelectItem value="POR_HORAS">Por horas</SelectItem>
+            <SelectItem value="POR_CONTRATO">Por contrato (M1/M2)</SelectItem>
           </SelectContent>
         </Select>
         {clientesList && (
@@ -279,7 +345,7 @@ export function EquiposView() {
             </div>
           ) : error ? (
             <div className="p-8 text-rose-700 text-sm">Error: {error}</div>
-          ) : !data || data.length === 0 ? (
+          ) : data.length === 0 ? (
             <div className="p-12 text-center">
               <Forklift className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
               <p className="text-sm font-medium">No hay equipos que mostrar</p>
@@ -297,7 +363,8 @@ export function EquiposView() {
                     <TableHead className="min-w-[140px]">Nº serie</TableHead>
                     <TableHead className="min-w-[180px]">Cliente</TableHead>
                     <TableHead className="min-w-[160px]">Ubicación</TableHead>
-                    <TableHead className="text-center">Horas</TableHead>
+                    <TableHead className="text-center min-w-[100px]">Horas</TableHead>
+                    <TableHead className="min-w-[150px]">Tipo revisión</TableHead>
                     <TableHead className="min-w-[120px]">Últ. revisión</TableHead>
                     <TableHead className="text-center">Estado</TableHead>
                     <TableHead className="text-right pr-6">Acciones</TableHead>
@@ -343,15 +410,53 @@ export function EquiposView() {
                           <Clock className="w-3 h-3 text-muted-foreground" />
                           {eq.horasUso.toLocaleString('es-ES')}
                         </div>
+                        {eq.proximaRevisionHoras != null && (
+                          <p className="text-[10px] text-muted-foreground tabular-nums">
+                            → {eq.proximaRevisionHoras.toLocaleString('es-ES')} h
+                          </p>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {eq.tipoRevision === 'POR_CONTRATO' ? (
+                          <EstadoBadge estado="PROGRAMADA" label="Por contrato" />
+                        ) : (
+                          <EstadoBadge estado="EN_PROCESO" label="Por horas" />
+                        )}
+                        {eq.proximaRevisionFecha && (
+                          <p className="text-[11px] text-muted-foreground tabular-nums mt-0.5">
+                            {formatFecha(eq.proximaRevisionFecha)}
+                            {(() => {
+                              const d = diasHasta(eq.proximaRevisionFecha)
+                              if (d === null) return ''
+                              if (d < 0) return ` · vencida ${-d}d`
+                              if (d === 0) return ' · hoy'
+                              return ` · en ${d}d`
+                            })()}
+                          </p>
+                        )}
                       </TableCell>
                       <TableCell className="text-[12px] tabular-nums">
                         {formatFecha(eq.ultimaRevision)}
                       </TableCell>
                       <TableCell className="text-center">
-                        <EstadoBadge estado={eq.estado} label={EQUIPO_ESTADOS[eq.estado]} />
+                        <EstadoBadge estado={eq.estado} label={EQUIPO_ESTADOS[eq.estado] || eq.estado} />
                       </TableCell>
                       <TableCell className="text-right pr-6">
                         <div className="flex justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0"
+                            onClick={() => handleToggleRevision(eq)}
+                            aria-label="Alternar tipo revisión"
+                            title={eq.tipoRevision === 'POR_CONTRATO' ? 'Cambiar a Por horas' : 'Cambiar a Por contrato (M1/M2)'}
+                          >
+                            {eq.tipoRevision === 'POR_CONTRATO' ? (
+                              <ToggleRight className="w-3.5 h-3.5 text-emerald-600" />
+                            ) : (
+                              <ToggleLeft className="w-3.5 h-3.5 text-amber-600" />
+                            )}
+                          </Button>
                           <Button
                             variant="ghost"
                             size="sm"
@@ -380,6 +485,58 @@ export function EquiposView() {
           )}
         </CardContent>
       </Card>
+
+      {/* Paginación */}
+      {total > pageSize && (
+        <div className="flex items-center justify-between gap-2 text-[12px] text-muted-foreground">
+          <p>
+            Mostrando <strong className="text-foreground tabular-nums">{data.length}</strong> de{' '}
+            <strong className="text-foreground tabular-nums">{total.toLocaleString('es-ES')}</strong> equipos · Página{' '}
+            <strong className="text-foreground tabular-nums">{page + 1}</strong> de{' '}
+            <strong className="text-foreground tabular-nums">{totalPages}</strong>
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage(0)}
+              disabled={!canPrev}
+              className="h-8 px-2"
+            >
+              <ChevronLeft className="w-3 h-3 mr-1" />
+              Inicio
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              disabled={!canPrev}
+              className="h-8 w-8 p-0"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+              disabled={!canNext}
+              className="h-8 w-8 p-0"
+            >
+              <ChevronRight className="w-3.5 h-3.5" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage(totalPages - 1)}
+              disabled={!canNext}
+              className="h-8 px-2"
+            >
+              Final
+              <ChevronRight className="w-3 h-3 ml-1" />
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Diálogo create/edit */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

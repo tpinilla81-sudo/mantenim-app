@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 
-// GET /api/equipos — listado con filtros
+// GET /api/equipos — listado con filtros y paginación
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
@@ -9,6 +9,9 @@ export async function GET(request: NextRequest) {
     const tipo = searchParams.get('tipo')
     const estado = searchParams.get('estado')
     const clienteId = searchParams.get('clienteId')
+    const tipoRevision = searchParams.get('tipoRevision')
+    const limit = Math.min(Number(searchParams.get('limit') || '200'), 500)
+    const offset = Math.max(Number(searchParams.get('offset') || '0'), 0)
 
     const where: Record<string, unknown> = {}
     if (q) {
@@ -18,18 +21,25 @@ export async function GET(request: NextRequest) {
         { modelo: { contains: q } },
         { numeroSerie: { contains: q } },
         { ubicacion: { contains: q } },
+        { codigoProductoBC: { contains: q } },
       ]
     }
     if (tipo && tipo !== 'TODOS') where.tipo = tipo
     if (estado && estado !== 'TODOS') where.estado = estado
     if (clienteId) where.clienteId = clienteId
+    if (tipoRevision && tipoRevision !== 'TODOS') where.tipoRevision = tipoRevision
 
-    const equipos = await db.equipo.findMany({
-      where,
-      orderBy: { codigo: 'asc' },
-      include: { cliente: true },
-    })
-    return NextResponse.json(equipos)
+    const [equipos, total] = await Promise.all([
+      db.equipo.findMany({
+        where,
+        orderBy: { codigo: 'asc' },
+        include: { cliente: true },
+        take: limit,
+        skip: offset,
+      }),
+      db.equipo.count({ where }),
+    ])
+    return NextResponse.json({ data: equipos, total, limit, offset })
   } catch (error) {
     console.error('GET /api/equipos error:', error)
     return NextResponse.json({ error: 'Error al obtener equipos' }, { status: 500 })
