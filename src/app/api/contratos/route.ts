@@ -8,6 +8,7 @@ export async function GET(request: NextRequest) {
     const q = searchParams.get('q')?.trim()
     const estado = searchParams.get('estado')
     const clienteId = searchParams.get('clienteId')
+    const incluirHistoricos = searchParams.get('historico') === 'true'
     const limit = Math.min(Number(searchParams.get('limit') || '200'), 500)
     const offset = Math.max(Number(searchParams.get('offset') || '0'), 0)
 
@@ -21,6 +22,10 @@ export async function GET(request: NextRequest) {
     }
     if (estado && estado !== 'TODOS') where.estado = estado
     if (clienteId) where.clienteId = clienteId
+    // Por defecto excluir históricos (a menos que el usuario los pida explícitamente)
+    if (!incluirHistoricos) {
+      where.esHistorico = false
+    }
 
     const [contratos, total] = await Promise.all([
       db.contrato.findMany({

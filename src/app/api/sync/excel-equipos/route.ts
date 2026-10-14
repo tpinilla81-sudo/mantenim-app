@@ -318,8 +318,8 @@ export async function POST(request: NextRequest) {
       contratosByNumero.set(normalized, c)
     }
 
-    // Limpiar equipos anteriores (si el usuario quiere reemplazo total)
-    const reemplazoTotal = formData.get('reemplazoTotal') !== 'false' // default true
+    // Modo incremental por defecto (reemplazoTotal=false preserva datos manuales)
+    const reemplazoTotal = formData.get('reemplazoTotal') === 'true' // default FALSE (incremental)
     if (reemplazoTotal) {
       await db.$transaction([
         db.revisionProgramada.deleteMany(),
@@ -404,28 +404,83 @@ export async function POST(request: NextRequest) {
           clienteId = await getFallbackCliente()
         }
 
-        // 4. Datos del equipo
+        // 4. Datos del equipo (siempre actualizables desde BC)
         const modelo = extraerModelo(row.descLinea, row.descContrato)
         const marca = extraerMarca(row.descContrato)
         const tipo = inferirTipo(modelo)
-        const horasUso = row.horasSalida || 0
-        const numeroSerie = row.numSerie || codProducto // fallback al código de producto si no hay serie
-        const ubicacion = cleanStr(row.descContrato) // mientras tanto, usamos la descripción
-
-        // 5. Calcular próxima revisión
+        const horasNuevas = row.horasSalida || 0
+        const numeroSerie = row.numSerie || codProducto
+        const ubicacion = cleanStr(row.descContrato)
         const periodicidadMeses = contrato?.periodicidadMeses || 12
-        const proximaRevision = calcularProximaRevision(
-          horasUso,
-          tipoRevision,
+
+        // Buscar si ya existe un equipo con ese códigoProductoBC
+        // Incluir campos que necesitamos preservar
+        const existente = await db.equipo.findUnique({
+          where: { codigoProductoBC: codProducto },
+          select: {
+            id: true,
+            horasUso: true,
+            ultimaRevision: true,
+            ultimoMantenimientoHoras: true,
+            notas: true,
+            tipoRevision: true,
+            tipoRevisionManual: true,
+          },
+        })
+        // También buscar por número de serie si no encontró por código
+        const existentePorSerie = !existente
+          ? await db.equipo.findUnique({
+              where: { numeroSerie },
+              select: {
+                id: true,
+                horasUso: true,
+                ultimaRevision: true,
+                ultimoMantenimientoHoras: true,
+                notas: true,
+                tipoRevision: true,
+                tipoRevisionManual: true,
+              },
+            })
+          : null
+        const equipoExistente = existente || existentePorSerie
+
+        // ============================================================
+        // Decisión: preservar horasUso si las nuevas son <= actuales
+        // (las horas solo suben; si BC reporta menos, mantenemos las manuales)
+        // ============================================================
+        let horasFinales = horasNuevas
+        let ultimaRevisionFinal = null as Date | null
+        let ultimoMantHorasFinal = null as number | null
+        let notasFinal = `Importado de BC. Contrato interno: ${row.numeroContrato || '—'}`
+        let tipoRevisionFinal: 'POR_HORAS' | 'POR_CONTRATO' = tipoRevision
+
+        if (equipoExistente) {
+          // Preservar horasUso: el máximo entre el actual (manual) y el nuevo (BC)
+          horasFinales = Math.max(equipoExistente.horasUso, horasNuevas)
+          // Preservar fecha de última revisión (solo la sabemos si se hizo un mantenimiento real)
+          ultimaRevisionFinal = equipoExistente.ultimaRevision
+          ultimoMantHorasFinal = equipoExistente.ultimoMantenimientoHoras
+          // Preservar notas si ya existen (no sobreescribir con el texto default)
+          if (equipoExistente.notas && equipoExistente.notas.trim() !== '') {
+            notasFinal = equipoExistente.notas
+          }
+          // Preservar tipoRevision si fue marcado manualmente
+          if (equipoExistente.tipoRevisionManual) {
+            tipoRevisionFinal = equipoExistente.tipoRevision as 'POR_HORAS' | 'POR_CONTRATO'
+          }
+        }
+
+        // 5. Recalcular próxima revisión con horas reales y tipo correcto
+        const proximaRevisionFinal = calcularProximaRevision(
+          horasFinales,
+          tipoRevisionFinal,
           periodicidadMeses,
-          null, // últimoMantenimientoHoras (no lo sabemos al importar)
-          null, // ultimaRevisionFecha (no lo sabemos)
+          ultimoMantHorasFinal,
+          ultimaRevisionFinal,
           row.fechaInicio || contrato?.fechaInicio || null,
         )
 
-        // Verificar que el número de serie no esté ya en uso
-        // (en SQLite, si falla la restricción única lo capturamos en el catch)
-
+        // Construir datos para update/create
         const dataEquipo = {
           codigo: codProducto,
           tipo,
@@ -434,71 +489,59 @@ export async function POST(request: NextRequest) {
           numeroSerie,
           ubicacion,
           estado: 'OPERATIVO',
-          horasUso,
-          notas: `Importado de BC. Contrato interno: ${row.numeroContrato || '—'}`,
+          horasUso: horasFinales,
+          horasSincronizadas: horasNuevas, // guardamos el valor de BC por separado
+          ultimaRevision: ultimaRevisionFinal,
+          ultimoMantenimientoHoras: ultimoMantHorasFinal,
+          notas: notasFinal,
           clienteId,
           codigoProductoBC: codProducto,
           contratoActivoId: row.numeroContrato || null,
-          tipoRevision: proximaRevision.tipoRevision,
-          umbralHorasActual: proximaRevision.umbralActual ?? null,
-          proximaRevisionHoras: proximaRevision.proximaHoras ?? null,
-          proximaRevisionFecha: proximaRevision.proximaFecha ?? null,
+          esHistorico: false, // está activo en BC ahora
+          // Solo sobreescribir tipoRevision si NO fue marcado manualmente
+          ...(equipoExistente?.tipoRevisionManual
+            ? {} // preservar tipoRevision actual
+            : {
+                tipoRevision: proximaRevisionFinal.tipoRevision,
+                umbralHorasActual: proximaRevisionFinal.umbralActual ?? null,
+                proximaRevisionHoras: proximaRevisionFinal.proximaHoras ?? null,
+                proximaRevisionFecha: proximaRevisionFinal.proximaFecha ?? null,
+              }),
         }
 
-        // Buscar si ya existe un equipo con ese códigoProductoBC
-        const existente = await db.equipo.findUnique({
-          where: { codigoProductoBC: codProducto },
-          select: { id: true },
-        })
-
-        if (existente) {
+        if (equipoExistente) {
           await db.equipo.update({
-            where: { id: existente.id },
+            where: { id: equipoExistente.id },
             data: dataEquipo,
           })
           result.equiposActualizados++
         } else {
-          // Verificar que el numeroSerie no esté ya en uso
-          const existentePorSerie = await db.equipo.findUnique({
-            where: { numeroSerie },
-            select: { id: true },
-          })
-          if (existentePorSerie) {
-            // Si la serie ya existe pero con otro código, actualizar
-            await db.equipo.update({
-              where: { id: existentePorSerie.id },
-              data: dataEquipo,
-            })
-            result.equiposActualizados++
-          } else {
-            try {
-              await db.equipo.create({ data: dataEquipo })
-              result.equiposCreados++
-            } catch (createErr) {
-              // Si falla la restricción única (poco probable ya que verificamos antes)
-              result.errores.push(`Equipo ${codProducto}: ${String(createErr)}`)
-            }
+          try {
+            await db.equipo.create({ data: dataEquipo })
+            result.equiposCreados++
+          } catch (createErr) {
+            result.errores.push(`Equipo ${codProducto}: ${String(createErr)}`)
           }
         }
 
-        // 6. Crear la entrada de revisión programada
-        if (proximaRevision.proximaFecha) {
-          // Recuperar el equipo recién creado/actualizado
-          const equipoActualizado = existente
-            ? await db.equipo.findUnique({ where: { id: existente.id }, select: { id: true } })
+        // 6. Crear la entrada de revisión programada (solo si no fue marcada manualmente
+        //    o si no hay PROGRAMADA ya)
+        if (proximaRevisionFinal.proximaFecha && !equipoExistente?.tipoRevisionManual) {
+          const equipoActualizado = equipoExistente
+            ? { id: equipoExistente.id }
             : await db.equipo.findUnique({ where: { codigoProductoBC: codProducto }, select: { id: true } })
           if (equipoActualizado) {
-            // Eliminar revisiones programadas anteriores PROGRAMADAS para este equipo
+            // Eliminar revisiones PROGRAMADAS previas y crear nueva
             await db.revisionProgramada.deleteMany({
               where: { equipoId: equipoActualizado.id, estado: 'PROGRAMADA' },
             })
             await db.revisionProgramada.create({
               data: {
                 equipoId: equipoActualizado.id,
-                tipo: proximaRevision.tipoRevision,
-                nivel: proximaRevision.nivel || null,
-                horasObjetivo: proximaRevision.proximaHoras || null,
-                fechaProgramada: proximaRevision.proximaFecha,
+                tipo: proximaRevisionFinal.tipoRevision,
+                nivel: proximaRevisionFinal.nivel || null,
+                horasObjetivo: proximaRevisionFinal.proximaHoras || null,
+                fechaProgramada: proximaRevisionFinal.proximaFecha,
                 estado: 'PROGRAMADA',
               },
             })
@@ -508,11 +551,10 @@ export async function POST(request: NextRequest) {
 
         // 7. Vincular el equipo al contrato CAC (relación N:M)
         if (contrato) {
-          const equipoParaVinculo = existente
-            ? await db.equipo.findUnique({ where: { id: existente.id }, select: { id: true } })
+          const equipoParaVinculo = equipoExistente
+            ? { id: equipoExistente.id }
             : await db.equipo.findUnique({ where: { codigoProductoBC: codProducto }, select: { id: true } })
           if (equipoParaVinculo) {
-            // Verificar si ya existe la relación
             const vinculoExistente = await db.contratoEquipo.findUnique({
               where: {
                 contratoId_equipoId: { contratoId: contrato.id, equipoId: equipoParaVinculo.id },
@@ -531,6 +573,22 @@ export async function POST(request: NextRequest) {
             result.errores.push(`Equipo ${codProducto}: ${String(err)}`)
           }
         }
+    }
+
+    // ============================================================
+    // 8. Marcar equipos en BD que NO están en este Excel como históricos
+    //     (solo en modo incremental — en reemplazo total ya se borró todo)
+    // ============================================================
+    if (!reemplazoTotal) {
+      const codigosEnExcel = Array.from(equiposMap.keys())
+      const markHistoricos = await db.equipo.updateMany({
+        where: {
+          codigoProductoBC: { notIn: codigosEnExcel },
+          esHistorico: false,
+        },
+        data: { esHistorico: true },
+      })
+      ;(result as { rowsMarkedHistorico?: number }).rowsMarkedHistorico = markHistoricos.count
     }
 
     // Crear entrada en SyncLog

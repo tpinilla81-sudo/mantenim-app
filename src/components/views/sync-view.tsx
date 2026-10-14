@@ -109,8 +109,12 @@ function formatDuration(ms: number): string {
 export function SyncView() {
   const [dragOver, setDragOver] = useState(false)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
-  const [reemplazoTotal, setReemplazoTotal] = useState(true)
+  // Default: INCREMENTAL (preserva datos manuales). reemplazoTotal=false
+  const [reemplazoTotal, setReemplazoTotal] = useState(false)
+  // Tipo de Excel a subir: 'contratos' (Excel 1) o 'equipos' (Excel 2)
+  const [excelType, setExcelType] = useState<'contratos' | 'equipos'>('contratos')
   const [uploading, setUploading] = useState(false)
+  const [recalculando, setRecalculando] = useState(false)
   const [progress, setProgress] = useState(0)
   const [lastResult, setLastResult] = useState<SyncResult | null>(null)
   const [deleteTarget, setDeleteTarget] = useState(false)
@@ -150,13 +154,16 @@ export function SyncView() {
     try {
       const formData = new FormData()
       formData.append('file', selectedFile)
-      formData.append('syncType', 'EXCEL_BC')
+      const endpoint = excelType === 'equipos'
+        ? '/api/sync/excel-equipos'
+        : '/api/sync/excel'
+      formData.append('syncType', excelType === 'equipos' ? 'EXCEL_BC_EQUIPOS' : 'EXCEL_BC')
       formData.append('reemplazoTotal', String(reemplazoTotal))
 
       setProgress(40)
 
       // Usar fetch directamente (no apiFetch) porque enviamos FormData
-      const res = await fetch('/api/sync/excel', {
+      const res = await fetch(endpoint, {
         method: 'POST',
         body: formData,
       })
@@ -195,6 +202,23 @@ export function SyncView() {
       refetchAll()
     } catch (err) {
       toast.error('Error al vaciar', { description: (err as Error).message })
+    }
+  }
+
+  const handleRecalc = async () => {
+    setRecalculando(true)
+    try {
+      const res = await fetch('/api/sync/recalcular-tipos-revision', { method: 'POST' })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error)
+      toast.success(
+        `Recálculo completado: ${json.marcadosPorContrato} por contrato · ${json.marcadosPorHoras} por horas`
+      )
+      refetchAll()
+    } catch (err) {
+      toast.error('Error al recalcular', { description: (err as Error).message })
+    } finally {
+      setRecalculando(false)
     }
   }
 
@@ -314,10 +338,42 @@ export function SyncView() {
         <CardHeader className="pb-3">
           <CardTitle className="text-base font-semibold flex items-center gap-2">
             <Upload className="w-4 h-4 text-primary" />
-            Subir Excel de Business Central
+            Sincronización inteligente con Business Central
           </CardTitle>
         </CardHeader>
         <CardContent className="pt-0 space-y-4">
+          {/* Guía de 3 pasos */}
+          <div className="bg-sky-50 border border-sky-200 rounded-md p-3 text-[12px] text-sky-900 space-y-1">
+            <p className="font-semibold text-sky-900">Flujo mensual recomendado (3 pasos):</p>
+            <p><strong>1.</strong> Subir <strong>Excel 1</strong> "Contratos de servicio" → actualiza contratos</p>
+            <p><strong>2.</strong> Subir <strong>Excel 2</strong> "Líneas de Contratos de Servicio Internos" → actualiza equipos y horas</p>
+            <p><strong>3.</strong> Pulsar <strong>"Recalcular tipos de revisión"</strong> para reclasificar M1/M2</p>
+            <p className="text-sky-700 mt-1">La sincronización <strong>preserva</strong> tu trabajo manual: horas actualizadas, revisiones completadas, M1/M2 marcados a mano, notas.</p>
+          </div>
+
+          {/* Selección de tipo de Excel */}
+          <div className="flex items-center gap-2">
+            <label className="text-[12px] text-muted-foreground mr-2">Tipo de Excel:</label>
+            <Button
+              type="button"
+              variant={excelType === 'contratos' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => { setExcelType('contratos'); setSelectedFile(null) }}
+              className="h-8"
+            >
+              Excel 1 · Contratos
+            </Button>
+            <Button
+              type="button"
+              variant={excelType === 'equipos' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => { setExcelType('equipos'); setSelectedFile(null) }}
+              className="h-8"
+            >
+              Excel 2 · Equipos
+            </Button>
+          </div>
+
           {/* Zona de drop */}
           <div
             onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
@@ -356,33 +412,36 @@ export function SyncView() {
                   Arrastra el Excel aquí o haz clic para seleccionar
                 </p>
                 <p className="text-[12px] text-muted-foreground">
-                  Formatos aceptados: .xlsx, .xls (exportación estándar de BC)
+                  {excelType === 'contratos'
+                    ? 'Excel 1: "Contratos de servicio" — Lista de contratos con su grupo (M1/M2, ALQLARGO...)'
+                    : 'Excel 2: "Líneas de Contratos de Servicio Internos" — Vínculo contrato ↔ máquina con horas'}
                 </p>
               </div>
             )}
           </div>
 
           {/* Opciones */}
-          <div className="flex items-start gap-3 p-3 bg-muted/30 rounded-md">
+          <div className="flex items-start gap-3 p-3 bg-amber-50 border border-amber-200 rounded-md">
             <Checkbox
               id="reemplazoTotal"
               checked={reemplazoTotal}
               onCheckedChange={(v) => setReemplazoTotal(v === true)}
+              className="mt-0.5"
             />
             <div className="space-y-0.5">
-              <Label htmlFor="reemplazoTotal" className="text-[13px] font-medium cursor-pointer">
-                Reemplazo total (recomendado)
+              <Label htmlFor="reemplazoTotal" className="text-[13px] font-medium cursor-pointer text-amber-900">
+                Reemplazo total (⚠️ borra todo tu trabajo manual)
               </Label>
-              <p className="text-[11px] text-muted-foreground">
-                Borra todos los clientes, contratos, equipos y órdenes de trabajo actuales antes
-                de importar el Excel. Si lo desactivas, los datos del Excel se fusionan con los
-                existentes (los contratos con el mismo número se actualizan).
+              <p className="text-[11px] text-amber-800">
+                <strong>NO recomendado para sincronizaciones mensuales.</strong> Borra todos los
+                clientes, contratos, equipos, revisiones completadas, horas actualizadas y notas
+                antes de importar. Úsalo solo si quieres empezar de cero.
               </p>
             </div>
           </div>
 
           {/* Acciones */}
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button
               onClick={handleUpload}
               disabled={!selectedFile || uploading}
@@ -395,7 +454,7 @@ export function SyncView() {
               ) : (
                 <>
                   <RefreshCw className="w-4 h-4 mr-1.5" />
-                  Sincronizar ahora
+                  Sincronizar {excelType === 'equipos' ? 'equipos' : 'contratos'}
                 </>
               )}
             </Button>
@@ -408,6 +467,24 @@ export function SyncView() {
               </Button>
             )}
             <div className="flex-1" />
+            <Button
+              variant="outline"
+              onClick={handleRecalc}
+              disabled={recalculando}
+              className="border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+            >
+              {recalculando ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+                  Recalculando...
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="w-4 h-4 mr-1.5" />
+                  Recalcular tipos de revisión
+                </>
+              )}
+            </Button>
             <Button
               variant="outline"
               size="sm"

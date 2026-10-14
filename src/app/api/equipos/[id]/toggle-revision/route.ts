@@ -64,10 +64,12 @@ export async function POST(_request: NextRequest, { params }: Params) {
     }
 
     // Actualizar equipo
+    // Marcar tipoRevisionManual=true para que futuras sincronizaciones no lo sobreescriban
     const equipoActualizado = await db.equipo.update({
       where: { id },
       data: {
         tipoRevision: nuevoTipo,
+        tipoRevisionManual: true,
         umbralHorasActual,
         proximaRevisionHoras,
         proximaRevisionFecha,

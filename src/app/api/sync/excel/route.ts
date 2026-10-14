@@ -405,6 +405,7 @@ export async function POST(request: NextRequest) {
         ultimaFactura: fila.ultimaFactura,
         proximaFactura: fila.proximaFactura,
         importePorPeriodo: fila.importePeriodo,
+        esHistorico: false, // Está activo en BC ahora
       }
 
       const existingId = existingContratos.get(fila.numeroContrato)
@@ -413,6 +414,23 @@ export async function POST(request: NextRequest) {
       } else {
         contratosParaCrear.push(dataContrato)
       }
+    }
+
+    // ============================================================
+    // 5b. Marcar contratos en BD que NO están en este Excel como históricos
+    //     (solo en modo incremental — en reemplazo total ya se borró todo)
+    // ============================================================
+    if (!reemplazoTotal) {
+      const numerosEnExcel = filasValidas.map((f) => f.numeroContrato)
+      const markHistoricos = await db.contrato.updateMany({
+        where: {
+          numero: { notIn: numerosEnExcel },
+          esHistorico: false,
+        },
+        data: { esHistorico: true },
+      })
+      // Añadir a stats como "filas marcadas como históricas"
+      ;(result as { rowsMarkedHistorico?: number }).rowsMarkedHistorico = markHistoricos.count
     }
 
     // ============================================================

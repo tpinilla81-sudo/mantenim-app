@@ -50,7 +50,8 @@ model Equipo {
   ubicacion         String?
   fechaInstalacion  DateTime?
   estado            String   @default("OPERATIVO") // OPERATIVO | EN_MANTENIMIENTO | FUERA_SERVICIO
-  horasUso          Int      @default(0) // contador actual de horas
+  horasUso          Int      @default(0) // contador actual de horas (puede ser manual)
+  horasSincronizadas Int?    // último valor de horas desde BC (para comparar al sincronizar)
   ultimaRevision    DateTime?
   notas             String?
   createdAt         DateTime @default(now())
@@ -61,6 +62,7 @@ model Equipo {
 
   // Campos para cálculo de revisiones
   tipoRevision      String   @default("POR_HORAS") // POR_HORAS | POR_CONTRATO
+  tipoRevisionManual Boolean @default(false) // true si el usuario lo cambió a mano (preservar en syncs)
   // Para equipos POR_HORAS: umbral actual aplicable (250 / 500 / 1000)
   umbralHorasActual  Int?     // ej. 250 para próxima pequeña, 500 para media, 1000 para gran
   // Próxima revisión (calculada al importar / actualizar horas)
@@ -69,6 +71,7 @@ model Equipo {
   ultimoMantenimientoHoras Int? // horas del equipo en la última revisión
   codigoProductoBC  String?  @unique // Nº prod. servicio en Business Central
   contratoActivoId  String?  // CAI# actual (referencia texto libre)
+  esHistorico      Boolean  @default(false) // true si ya no aparece en BC (contrato caducado/equipo retirado)
 
   contratos         ContratoEquipo[]
   ordenesTrabajo    OrdenTrabajo[]
@@ -127,6 +130,7 @@ model Contrato {
   ultimaFactura         DateTime? // Últ. fecha factura
   proximaFactura        DateTime? // Siguiente fecha factura
   importePorPeriodo     Float?  // Importe por periodo original (para no perderlo)
+  esHistorico           Boolean @default(false) // true si ya no aparece en BC (caducado/cancelado)
 
   equipos               ContratoEquipo[]
   ordenesTrabajo        OrdenTrabajo[]

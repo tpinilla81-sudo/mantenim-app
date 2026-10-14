@@ -107,6 +107,7 @@ export async function POST() {
     }
 
     // Cargar todos los equipos con su contratoActivoId
+    // Respetar tipoRevisionManual: si está marcado, no sobreescribir el tipo
     const equipos = await db.equipo.findMany({
       select: {
         id: true,
@@ -114,8 +115,10 @@ export async function POST() {
         horasUso: true,
         ultimaRevision: true,
         contratoActivoId: true,
+        tipoRevision: true,
+        tipoRevisionManual: true,
       },
-      take: 10000, // límite alto para procesar todos
+      take: 10000,
     })
     result.totalEquipos = equipos.length
 
@@ -128,7 +131,6 @@ export async function POST() {
         let periodicidad = 12
 
         if (contratoActivoId) {
-          // Probar dos variantes: el contrato tal cual + transformado
           const variantes = [
             contratoActivoId,
             transformarContratoInterno(contratoActivoId),
@@ -147,6 +149,53 @@ export async function POST() {
               periodicidad = contratoEncontrado.periodicidadMeses || 12
             }
           }
+        }
+
+        // ============================================================
+        // Si el equipo tiene tipoRevisionManual=true, NO sobreescribir el tipo
+        // (el usuario lo cambió manualmente y queremos respetarlo)
+        // ============================================================
+        if (eq.tipoRevisionManual) {
+          nuevoTipo = eq.tipoRevision as 'POR_HORAS' | 'POR_CONTRATO'
+          // Pero SI podemos vincular al contrato si lo encontramos
+          if (contratoEncontrado?.clienteId) {
+            await db.equipo.update({
+              where: { id: eq.id },
+              data: { clienteId: contratoEncontrado.clienteId },
+            })
+          }
+          if (contratoEncontrado) {
+            const vinculoExistente = await db.contratoEquipo.findUnique({
+              where: {
+                contratoId_equipoId: { contratoId: contratoEncontrado.id, equipoId: eq.id },
+              },
+              select: { id: true },
+            })
+            if (!vinculoExistente) {
+              await db.contratoEquipo.create({
+                data: { contratoId: contratoEncontrado.id, equipoId: eq.id },
+              })
+            }
+          }
+          // Recalcular próxima revisión con el tipo PRESERVADO
+          const calcManual = calcularProximaRevision(
+            eq.horasUso,
+            nuevoTipo,
+            periodicidad,
+            eq.ultimaRevision,
+            contratoEncontrado?.fechaInicio || null,
+          )
+          await db.equipo.update({
+            where: { id: eq.id },
+            data: {
+              proximaRevisionHoras: calcManual.proximaHoras,
+              proximaRevisionFecha: calcManual.proximaFecha,
+              umbralHorasActual: calcManual.umbralActual,
+            },
+          })
+          if (nuevoTipo === 'POR_CONTRATO') result.marcadosPorContrato++
+          else result.marcadosPorHoras++
+          continue
         }
 
         if (nuevoTipo === 'POR_CONTRATO') result.marcadosPorContrato++
@@ -169,7 +218,6 @@ export async function POST() {
             umbralHorasActual: calc.umbralActual,
             proximaRevisionHoras: calc.proximaHoras,
             proximaRevisionFecha: calc.proximaFecha,
-            // Si encontramos contrato, vincular cliente
             ...(contratoEncontrado?.clienteId ? { clienteId: contratoEncontrado.clienteId } : {}),
           },
         })
