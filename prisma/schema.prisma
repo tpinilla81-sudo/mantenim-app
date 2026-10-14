@@ -1,0 +1,144 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// CLIENTE — Empresa cliente (propietaria de la maquinaria)
+// ============================================================
+model Cliente {
+  id              String       @id @default(cuid())
+  nombre          String
+  nif             String
+  email           String?
+  telefono        String?
+  direccion       String?
+  ciudad          String?
+  codigoPostal    String?
+  contactoNombre  String?
+  contactoEmail   String?
+  contactoTelefono String?
+  estado          String       @default("ACTIVO") // ACTIVO | INACTIVO
+  notas           String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  equipos         Equipo[]
+  contratos       Contrato[]
+}
+
+// ============================================================
+// EQUIPO — Maquinaria elevadora (grúas y montacargas)
+// ============================================================
+model Equipo {
+  id                String   @id @default(cuid())
+  codigo            String   @unique // código interno
+  tipo              String   // GRUA_TORRE | GRUA_MOVIL | GRUA_PUENTE | MONTACARGAS_COMBUSTION | MONTACARGAS_ELECTRICO
+  marca             String
+  modelo            String
+  numeroSerie       String   @unique
+  anioFabricacion   Int?
+  ubicacion         String?
+  fechaInstalacion  DateTime?
+  estado            String   @default("OPERATIVO") // OPERATIVO | EN_MANTENIMIENTO | FUERA_SERVICIO
+  horasUso          Int      @default(0)
+  ultimaRevision    DateTime?
+  notas             String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  clienteId         String
+  cliente           Cliente  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  contratos         ContratoEquipo[]
+  ordenesTrabajo    OrdenTrabajo[]
+}
+
+// ============================================================
+// CONTRATO — Contrato de mantenimiento
+// ============================================================
+model Contrato {
+  id                    String   @id @default(cuid())
+  numero                String   @unique
+  clienteId             String
+  cliente               Cliente  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  fechaInicio           DateTime
+  fechaFin              DateTime
+  tipoMantenimiento     String   @default("PREVENTIVO") // PREVENTIVO | CORRECTIVO | MIXTO
+  periodicidadMeses     Int      @default(3) // cada cuántos meses se realiza mantenimiento
+  precioAnual           Float
+  precioVisita          Float?
+  estado                String   @default("ACTIVO") // ACTIVO | VENCIDO | SUSPENDIDO | CANCELADO
+  fechaProxMantenimiento DateTime?
+  condiciones           String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  equipos               ContratoEquipo[]
+  ordenesTrabajo        OrdenTrabajo[]
+}
+
+// Tabla intermedia relación N:M Contrato <-> Equipo
+model ContratoEquipo {
+  id          String   @id @default(cuid())
+  contratoId  String
+  equipoId    String
+  contrato    Contrato @relation(fields: [contratoId], references: [id], onDelete: Cascade)
+  equipo      Equipo   @relation(fields: [equipoId], references: [id], onDelete: Cascade)
+
+  @@unique([contratoId, equipoId])
+}
+
+// ============================================================
+// TECNICO — Personal de mantenimiento
+// ============================================================
+model Tecnico {
+  id          String   @id @default(cuid())
+  nombre      String
+  apellidos   String
+  dni         String?
+  especialidad String? // MECANICA | ELECTRONICA | HIDRAULICA | GENERAL
+  email       String?
+  telefono    String?
+  estado      String   @default("ACTIVO") // ACTIVO | INACTIVO | VACACIONES
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  ordenesTrabajo OrdenTrabajo[]
+}
+
+// ============================================================
+// ORDEN DE TRABAJO — Mantenimiento preventivo/correctivo
+// ============================================================
+model OrdenTrabajo {
+  id              String    @id @default(cuid())
+  numero          String    @unique // OT-2026-001
+  equipoId        String
+  equipo          Equipo    @relation(fields: [equipoId], references: [id], onDelete: Cascade)
+
+  contratoId      String?
+  contrato        Contrato? @relation(fields: [contratoId], references: [id], onDelete: SetNull)
+
+  tecnicoId       String?
+  tecnico         Tecnico?  @relation(fields: [tecnicoId], references: [id], onDelete: SetNull)
+
+  tipo            String    @default("PREVENTIVO") // PREVENTIVO | CORRECTIVO | REPARACION
+  estado          String    @default("PROGRAMADA") // PROGRAMADA | EN_PROCESO | COMPLETADA | CANCELADA
+  prioridad       String    @default("MEDIA") // BAJA | MEDIA | ALTA | URGENTE
+  descripcion     String
+  observaciones   String?
+  fechaProgramada DateTime
+  fechaRealizada  DateTime?
+  horasTrabajadas Float?
+  importe         Float?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
