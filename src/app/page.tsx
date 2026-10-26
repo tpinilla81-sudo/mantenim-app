@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react'
 import {
-  LayoutDashboard,
   Users,
   Forklift,
   FileText,
@@ -13,9 +12,10 @@ import {
   X,
   Database,
   CalendarClock,
+  Sun,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { DashboardView } from '@/components/views/dashboard-view'
+import { HoyView } from '@/components/views/hoy-view'
 import { ClientesView } from '@/components/views/clientes-view'
 import { EquiposView } from '@/components/views/equipos-view'
 import { ContratosView } from '@/components/views/contratos-view'
@@ -25,7 +25,7 @@ import { SyncView } from '@/components/views/sync-view'
 import { RevisionesView } from '@/components/views/revisiones-view'
 
 type ViewKey =
-  | 'dashboard'
+  | 'hoy'
   | 'clientes'
   | 'equipos'
   | 'contratos'
@@ -43,10 +43,10 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   {
-    key: 'dashboard',
-    label: 'Dashboard',
-    icon: LayoutDashboard,
-    description: 'Visión general de KPIs',
+    key: 'hoy',
+    label: 'Hoy',
+    icon: Sun,
+    description: 'Trabajo del día: pendientes, vencidas y urgentes',
   },
   {
     key: 'clientes',
@@ -101,7 +101,7 @@ export default function Home() {
         return hash
       }
     }
-    return 'dashboard'
+    return 'hoy'
   })
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
@@ -116,8 +116,8 @@ export default function Home() {
 
   const renderView = () => {
     switch (activeView) {
-      case 'dashboard':
-        return <DashboardView onNavigate={setActiveView} />
+      case 'hoy':
+        return <HoyView onNavigate={setActiveView} />
       case 'clientes':
         return <ClientesView />
       case 'equipos':
