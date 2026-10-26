@@ -1,13 +1,21 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
+// ⚠️ INSTRUCCIONES:
+// - LOCAL (SQLite): deja provider = "sqlite" y DATABASE_URL="file:./dev.db"
+// - PRODUCCIÓN (Neon): cambia a provider = "postgresql" y pon tus URLs de Neon en .env
+//                     (descomenta la línea directUrl abajo)
+
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
+  // LOCAL: "sqlite"  |  PRODUCCIÓN: "postgresql"
   provider = "sqlite"
   url      = env("DATABASE_URL")
+  // Para PostgreSQL en producción, descomenta esta línea:
+  // directUrl = env("DIRECT_DATABASE_URL")
 }
 
 // ============================================================

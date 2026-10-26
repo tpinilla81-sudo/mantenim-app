@@ -32,10 +32,10 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
-
 
 # typescript
 *.tsbuildinfo
@@ -50,5 +50,23 @@ test
 prompt
 
 server.log
+
 # Skills directory
 /skills/
+
+# Z-ai internal scripts
+/.zscripts/
+
+# Local SQLite database (cuando se usa SQLite en local)
+/db/*.db
+/db/*.db-journal
+
+# Uploaded Excels (se suben via UI, no se versionan)
+/upload/*.xlsx
+/upload/*.xls
+
+# Screenshots
+/screenshots/
+
+# Vercel functions
+.vercel/

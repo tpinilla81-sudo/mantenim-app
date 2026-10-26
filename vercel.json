@@ -1,0 +1,10 @@
+{
+  "framework": "nextjs",
+  "buildCommand": "bun run build",
+  "installCommand": "bun install",
+  "functions": {
+    "src/app/api/**": {
+      "maxDuration": 60
+    }
+  }
+}
