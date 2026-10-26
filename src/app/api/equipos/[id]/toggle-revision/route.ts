@@ -45,19 +45,13 @@ export async function POST(_request: NextRequest, { params }: Params) {
       proximaRevisionFecha.setMonth(proximaRevisionFecha.getMonth() + periodicidad)
       nivel = 'CONTRATO'
     } else {
-      // Para POR_HORAS: usar umbrales 250/500/1000
-      const UMBRALES = [250, 500, 1000]
-      const candidatos = UMBRALES.map((u) => ({
-        horas: Math.ceil((equipo.horasUso + 1) / u) * u,
-        umbral: u,
-        nivel: u === 250 ? 'PEQUENA' : u === 500 ? 'MEDIA' : 'GRANDE',
-      })).filter((c) => c.horas > equipo.horasUso)
-      candidatos.sort((a, b) => (a.horas - equipo.horasUso) - (b.horas - equipo.horasUso))
-      if (candidatos[0]) {
-        proximaRevisionHoras = candidatos[0].horas
-        umbralHorasActual = candidatos[0].umbral
-        nivel = candidatos[0].nivel
-        // Fecha estimada: hoy + 30 días
+      // Para POR_HORAS: umbral FIJO de 500h (sin niveles)
+      const UMBRAL = 500
+      const proximaHoras = Math.ceil((equipo.horasUso + 1) / UMBRAL) * UMBRAL
+      if (proximaHoras > equipo.horasUso) {
+        proximaRevisionHoras = proximaHoras
+        umbralHorasActual = UMBRAL
+        nivel = 'REVISION_500H'
         proximaRevisionFecha = new Date()
         proximaRevisionFecha.setDate(proximaRevisionFecha.getDate() + 30)
       }

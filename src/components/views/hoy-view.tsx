@@ -56,6 +56,7 @@ interface OTHoy {
 
 interface HoyData {
   fecha: string
+  zonaFiltrada: string
   resumen: {
     revisionesHoy: number
     otsHoy: number
@@ -66,6 +67,7 @@ interface HoyData {
   revisionesHoy: RevisionHoy[]
   otsHoy: OTHoy[]
   vencidasTop: RevisionHoy[]
+  proximos7dias: RevisionHoy[]
   equiposCercaUmbral: EquipoInfo[]
 }
 
@@ -105,7 +107,14 @@ function KpiCard({
 }
 
 export function HoyView({ onNavigate }: { onNavigate: (v: ViewKey) => void }) {
-  const { data, loading, error, refetch } = useFetch<HoyData>('/api/hoy')
+  const [zonaSeleccionada, setZonaSeleccionada] = useState<string>('TODAS')
+  // Lista de zonas disponibles (hardcoded por ahora: las que vimos en BC + S1/S2/S3 comunes)
+  const ZONAS_DISPONIBLES = ['TODAS', 'A10', 'B100', 'A20', 'VW', 'S1', 'S2', 'S3']
+
+  const url = zonaSeleccionada && zonaSeleccionada !== 'TODAS'
+    ? `/api/hoy?zona=${encodeURIComponent(zonaSeleccionada)}`
+    : '/api/hoy'
+  const { data, loading, error, refetch } = useFetch<HoyData>(url)
   const [completingId, setCompletingId] = useState<string | null>(null)
 
   const markCompleted = async (id: string, descripcionEquipo: string) => {
@@ -166,17 +175,57 @@ export function HoyView({ onNavigate }: { onNavigate: (v: ViewKey) => void }) {
 
   return (
     <div className="p-4 lg:p-8 space-y-6 max-w-[1400px]">
-      {/* Header con fecha */}
+      {/* Header con fecha + selector de zona */}
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Trabajo de hoy</h1>
           <p className="text-[13px] text-muted-foreground capitalize">{fechaTexto}</p>
         </div>
-        <Button onClick={() => refetch()} variant="outline" size="sm">
-          <Clock className="w-3.5 h-3.5 mr-1.5" />
-          Actualizar
-        </Button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-[12px] text-muted-foreground">Zona:</span>
+          {ZONAS_DISPONIBLES.map((z) => (
+            <button
+              key={z}
+              onClick={() => setZonaSeleccionada(z)}
+              className={cn(
+                'text-[11px] font-medium px-2.5 py-1 rounded-full border transition-colors',
+                zonaSeleccionada === z
+                  ? 'bg-primary text-primary-foreground border-primary'
+                  : 'bg-background text-muted-foreground border-border hover:bg-muted'
+              )}
+            >
+              {z === 'TODAS' ? 'Todas' : z}
+            </button>
+          ))}
+          <Button onClick={() => refetch()} variant="outline" size="sm" className="ml-2 h-7">
+            <Clock className="w-3.5 h-3.5 mr-1.5" />
+            Actualizar
+          </Button>
+        </div>
       </div>
+
+      {/* Banner de notificación: resumen del día */}
+      {data.resumen.vencidas > 0 && (
+        <div className="flex items-start gap-3 p-4 bg-rose-50 border border-rose-300 rounded-lg">
+          <AlertTriangle className="w-5 h-5 text-rose-600 mt-0.5 shrink-0" />
+          <div className="flex-1">
+            <p className="text-sm font-medium text-rose-900">
+              Tienes {data.resumen.vencidas} revisiones vencidas
+              {data.resumen.revisionesHoy > 0 && ` y ${data.resumen.revisionesHoy} para hoy`}
+            </p>
+            <p className="text-[12px] text-rose-700 mt-0.5">
+              Revisa las más antiguas abajo y márcalas como completadas cuando las hagas.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Mostrar zona filtrada si aplica */}
+      {data.zonaFiltrada !== 'TODAS' && (
+        <div className="text-[12px] text-muted-foreground">
+          Filtrando por zona: <strong className="text-foreground">{data.zonaFiltrada}</strong>
+        </div>
+      )}
 
       {/* KPIs del día */}
       <section className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
@@ -231,7 +280,7 @@ export function HoyView({ onNavigate }: { onNavigate: (v: ViewKey) => void }) {
               <PendienteItem
                 key={`rev-${r.id}`}
                 numero={r.equipo.codigo}
-                titulo={`Revisión ${r.nivel === 'CONTRATO' ? 'por contrato' : r.nivel === 'PEQUENA' ? 'pequeña (250h)' : r.nivel === 'MEDIA' ? 'media (500h)' : r.nivel === 'GRANDE' ? 'grande (1000h)' : ''}`}
+                titulo={`Revisión ${r.nivel === 'CONTRATO' ? 'por contrato' : '500h'}`}
                 descripcion={r.equipo.cliente?.nombre || 'Sin cliente'}
                 meta={`${EQUIPO_TIPOS[r.equipo.tipo] || r.equipo.tipo} · ${r.equipo.marca} ${r.equipo.modelo}`}
                 badge={<EstadoBadge estado={r.tipo} label={r.tipo === 'POR_CONTRATO' ? 'Por contrato' : 'Por horas'} />}
@@ -269,6 +318,49 @@ export function HoyView({ onNavigate }: { onNavigate: (v: ViewKey) => void }) {
         </Card>
       )}
 
+      {/* Próximos 7 días */}
+      {data.proximos7dias.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3 flex flex-row items-center justify-between">
+            <CardTitle className="text-base font-semibold flex items-center gap-2">
+              <Clock className="w-4 h-4 text-sky-600" />
+              Próximos 7 días
+              <span className="ml-1 text-[12px] text-muted-foreground font-normal">
+                ({data.proximos7dias.length} revisiones programadas)
+              </span>
+            </CardTitle>
+            <Button variant="ghost" size="sm" onClick={() => onNavigate('revisiones')}>
+              Ver todas
+              <ChevronRight className="w-3.5 h-3.5 ml-1" />
+            </Button>
+          </CardHeader>
+          <CardContent className="pt-0 space-y-2">
+            {data.proximos7dias.map((r) => {
+              const dias = diasHasta(r.fechaProgramada)
+              return (
+                <PendienteItem
+                  key={`7d-${r.id}`}
+                  numero={r.equipo.codigo}
+                  titulo={`Revisión ${r.nivel === 'CONTRATO' ? 'por contrato' : '500h'}`}
+                  descripcion={r.equipo.cliente?.nombre || 'Sin cliente'}
+                  meta={`${EQUIPO_TIPOS[r.equipo.tipo] || r.equipo.tipo} · ${r.equipo.marca} ${r.equipo.modelo}${r.horasObjetivo ? ` · ${r.equipo.horasUso.toLocaleString('es-ES')}/${r.horasObjetivo.toLocaleString('es-ES')} h` : ''}`}
+                  badge={<EstadoBadge estado={r.tipo} label={r.tipo === 'POR_CONTRATO' ? 'Por contrato' : 'Por horas'} />}
+                  badgeRight={
+                    <span className="text-[11px] text-muted-foreground tabular-nums">
+                      {formatFecha(r.fechaProgramada)}
+                      {dias !== null && dias > 0 && ` · en ${dias}d`}
+                    </span>
+                  }
+                  onMarkDone={null}
+                  isMarking={false}
+                  onNavigate={() => onNavigate('revisiones')}
+                />
+              )
+            })}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Las más vencidas (top 10) */}
       {data.vencidasTop.length > 0 && (
         <Card className="border-rose-200">
@@ -293,7 +385,7 @@ export function HoyView({ onNavigate }: { onNavigate: (v: ViewKey) => void }) {
                 <PendienteItem
                   key={`venc-${r.id}`}
                   numero={r.equipo.codigo}
-                  titulo={`Revisión ${r.nivel === 'CONTRATO' ? 'por contrato' : r.nivel === 'PEQUENA' ? 'pequeña' : r.nivel === 'MEDIA' ? 'media' : r.nivel === 'GRANDE' ? 'grande' : ''}`}
+                  titulo={`Revisión ${r.nivel === 'CONTRATO' ? 'por contrato' : '500h'}`}
                   descripcion={r.equipo.cliente?.nombre || 'Sin cliente'}
                   meta={`${EQUIPO_TIPOS[r.equipo.tipo] || r.equipo.tipo} · ${r.equipo.marca} ${r.equipo.modelo}${r.horasObjetivo ? ` · ${r.equipo.horasUso.toLocaleString('es-ES')}/${r.horasObjetivo.toLocaleString('es-ES')} h` : ''}`}
                   badge={<EstadoBadge estado={r.tipo} label={r.tipo === 'POR_CONTRATO' ? 'Por contrato' : 'Por horas'} />}

@@ -29,6 +29,8 @@ model Cliente {
   contactoTelefono String?
   estado           String       @default("ACTIVO") // ACTIVO | INACTIVO
   notas            String?
+  // Zona geográfica interna (S1, S2, S3...) — filterable en la app
+  zona             String?
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
 

@@ -56,23 +56,21 @@ function calcularProximaRevision(
     }
   }
 
-  // POR_HORAS: 250/500/1000
-  const candidatos = [250, 500, 1000].map((u) => ({
-    horas: Math.ceil((horasActuales + 1) / u) * u,
-    umbral: u,
-    nivel: u === 250 ? 'PEQUENA' : u === 500 ? 'MEDIA' : 'GRANDE',
-  })).filter((c) => c.horas > horasActuales)
-  candidatos.sort((a, b) => (a.horas - horasActuales) - (b.horas - horasActuales))
-  if (!candidatos[0]) return { tipoRevision, proximaFecha: null, proximaHoras: null, umbralActual: null, nivel: null }
-
+  // POR_HORAS: umbral FIJO de 500h (un solo tipo de revisión)
+  const UMBRAL = 500
+  const proximaHoras = Math.ceil((horasActuales + 1) / UMBRAL) * UMBRAL
+  if (proximaHoras <= horasActuales) {
+    return { tipoRevision, proximaFecha: null, proximaHoras: null, umbralActual: null, nivel: null }
+  }
+  // Fecha estimada: hoy + 30 días (placeholder hasta que el técnico actualice horas)
   const proximaFecha = new Date()
   proximaFecha.setDate(proximaFecha.getDate() + 30)
   return {
     tipoRevision,
     proximaFecha,
-    proximaHoras: candidatos[0].horas,
-    umbralActual: candidatos[0].umbral,
-    nivel: candidatos[0].nivel,
+    proximaHoras,
+    umbralActual: UMBRAL,
+    nivel: 'REVISION_500H' as string | null,
   }
 }
 

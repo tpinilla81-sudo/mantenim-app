@@ -150,7 +150,7 @@ function calcularProximaRevision(
   horasActuales: number,
   tipoRevision: 'POR_HORAS' | 'POR_CONTRATO',
   periodicidadMeses: number,
-  ultimoMantenimientoHoras: number | null,
+  _ultimoMantenimientoHoras: number | null,
   ultimaRevisionFecha: Date | null,
   fechaInicioContrato: Date | null,
 ): NextRevisionResult {
@@ -166,41 +166,22 @@ function calcularProximaRevision(
     }
   }
 
-  // POR_HORAS: usar umbrales 250 / 500 / 1000
-  // Encontrar el siguiente umbral múltiplo por encima de las horas actuales
-  const UMBRALES = [250, 500, 1000]
-  // El "umbral actual" es el primer umbral tal que horasActuales < umbralSiguiente
-  // Ej: si horasActuales = 3091, el siguiente umbral de 250 es 3250 (13 * 250)
-  const proximo250 = Math.ceil((horasActuales + 1) / 250) * 250
-  const proximo500 = Math.ceil((horasActuales + 1) / 500) * 500
-  const proximo1000 = Math.ceil((horasActuales + 1) / 1000) * 1000
-
-  // Determinar el umbral más próximo (el menor avance)
-  const candidatos = [
-    { horas: proximo250, umbral: 250, nivel: 'PEQUENA' },
-    { horas: proximo500, umbral: 500, nivel: 'MEDIA' },
-    { horas: proximo1000, umbral: 1000, nivel: 'GRANDE' },
-  ].filter((c) => c.horas > horasActuales)
-
-  // Ordenar por proximidad (cuántas horas faltan)
-  candidatos.sort((a, b) => (a.horas - horasActuales) - (b.horas - horasActuales))
-
-  const proximo = candidatos[0]
-  if (!proximo) {
+  // POR_HORAS: umbral FIJO de 500h (sin niveles)
+  const UMBRAL = 500
+  const proximaHoras = Math.ceil((horasActuales + 1) / UMBRAL) * UMBRAL
+  if (proximaHoras <= horasActuales) {
     return { tipoRevision: 'POR_HORAS' }
   }
 
-  // Estimación de fecha: si tenemos último mantenimiento y horas desde entonces
-  // (no tenemos tasa de uso, dejamos fechaProgramada = hoy + 30 días como estimación)
   const fechaEstimada = new Date()
   fechaEstimada.setDate(fechaEstimada.getDate() + 30)
 
   return {
     tipoRevision: 'POR_HORAS',
-    umbralActual: proximo.umbral,
-    proximaHoras: proximo.horas,
+    umbralActual: UMBRAL,
+    proximaHoras,
     proximaFecha: fechaEstimada,
-    nivel: proximo.nivel,
+    nivel: 'REVISION_500H',
   }
 }
 

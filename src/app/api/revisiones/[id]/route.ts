@@ -44,18 +44,13 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       let nivel: string | null = null
 
       if (revision.tipo === 'POR_HORAS') {
-        // Para POR_HORAS: siguiente umbral múltiplo
-        const UMBRALES = [250, 500, 1000]
-        const candidatos = UMBRALES.map((u) => ({
-          horas: Math.ceil((equipo.horasUso + 1) / u) * u,
-          umbral: u,
-          nivel: u === 250 ? 'PEQUENA' : u === 500 ? 'MEDIA' : 'GRANDE',
-        })).filter((c) => c.horas > equipo.horasUso)
-        candidatos.sort((a, b) => (a.horas - equipo.horasUso) - (b.horas - equipo.horasUso))
-        if (candidatos[0]) {
-          proximaRevisionHoras = candidatos[0].horas
-          umbralHorasActual = candidatos[0].umbral
-          nivel = candidatos[0].nivel
+        // Para POR_HORAS: umbral FIJO de 500h
+        const UMBRAL = 500
+        const proximaHoras = Math.ceil((equipo.horasUso + 1) / UMBRAL) * UMBRAL
+        if (proximaHoras > equipo.horasUso) {
+          proximaRevisionHoras = proximaHoras
+          umbralHorasActual = UMBRAL
+          nivel = 'REVISION_500H'
           proximaRevisionFecha = new Date()
           proximaRevisionFecha.setDate(proximaRevisionFecha.getDate() + 30)
         }
