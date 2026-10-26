@@ -56,6 +56,15 @@ export async function PUT(request: NextRequest, { params }: Params) {
         revisionesContratadasAnual: revisionesContratadasAnual
           ? Number(revisionesContratadasAnual)
           : null,
+        // Nuevos campos para distinguir máquinas propias vs del cliente
+        esMaquinaPropia: body.esMaquinaPropia === true || body.esMaquinaPropia === 'true',
+        horasAnualesEstimadas: body.horasAnualesEstimadas
+          ? Number(body.horasAnualesEstimadas)
+          : null,
+        // Umbral de revisión para máquinas propias (500 o 1000)
+        umbralHorasActual: body.umbralHorasActual
+          ? Number(body.umbralHorasActual)
+          : null,
       },
       include: { cliente: true },
     })

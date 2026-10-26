@@ -65,8 +65,8 @@ model Equipo {
   // Campos para cálculo de revisiones
   tipoRevision      String   @default("POR_HORAS") // POR_HORAS | POR_CONTRATO
   tipoRevisionManual Boolean @default(false) // true si el usuario lo cambió a mano (preservar en syncs)
-  // Para equipos POR_HORAS: umbral actual aplicable (250 / 500 / 1000)
-  umbralHorasActual  Int?     // ej. 250 para próxima pequeña, 500 para media, 1000 para gran
+  // Para equipos POR_HORAS: umbral actual aplicable (500 o 1000)
+  umbralHorasActual  Int?     // ej. 500 (default) o 1000 (revisión mayor)
   // Próxima revisión (calculada al importar / actualizar horas)
   proximaRevisionHoras Int?   // ej. 3250 (umbral siguiente a horasUso)
   proximaRevisionFecha DateTime? // para POR_CONTRATO: fecha calendaria
@@ -77,6 +77,15 @@ model Equipo {
   // Si está a null, usa periodicidadMeses del contrato (default 12 meses)
   // Si está a N, calcula periodicidad = 12/N meses (ej: 4 → trimestral, 2 → semestral)
   revisionesContratadasAnual Int?
+
+  // === DISTINCIÓN MÁQUINA CLIENTE vs PROPIA ===
+  // false = máquina del cliente (con contrato M1/M2/FSCR/FSSR)
+  // true = máquina propia de la empresa de mantenimiento (sin contrato, revisión por horas)
+  esMaquinaPropia Boolean @default(false)
+  // Para máquinas PROPIAS: horas/año estimadas (para calcular próxima revisión con fecha real)
+  // Si null, usa fallback "hoy + 30 días" (sin tasa de uso)
+  horasAnualesEstimadas Int?
+
   esHistorico      Boolean  @default(false) // true si ya no aparece en BC (contrato caducado/equipo retirado)
 
   contratos         ContratoEquipo[]

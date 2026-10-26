@@ -58,15 +58,24 @@ export async function POST(_request: NextRequest, { params }: Params) {
       proximaRevisionFecha.setMonth(proximaRevisionFecha.getMonth() + periodicidad)
       nivel = 'CONTRATO'
     } else {
-      // POR_HORAS: 500h fijo
-      const UMBRAL = 500
+      // POR_HORAS: umbral configurable (500 o 1000) — para máquinas propias
+      const UMBRAL = equipo.umbralHorasActual && equipo.umbralHorasActual > 0 ? equipo.umbralHorasActual : 500
       const prox = Math.ceil((equipo.horasUso + 1) / UMBRAL) * UMBRAL
       if (prox > equipo.horasUso) {
         proximaRevisionHoras = prox
         umbralHorasActual = UMBRAL
-        nivel = 'REVISION_500H'
-        proximaRevisionFecha = new Date()
-        proximaRevisionFecha.setDate(proximaRevisionFecha.getDate() + 30)
+        nivel = UMBRAL === 1000 ? 'REVISION_1000H' : 'REVISION_500H'
+        // Si tenemos tasa de uso (horasAnualesEstimadas), calcular fecha estimada real
+        if (equipo.horasAnualesEstimadas && equipo.horasAnualesEstimadas > 0) {
+          const horasRestantes = prox - equipo.horasUso
+          const diasRestantes = Math.ceil((horasRestantes / equipo.horasAnualesEstimadas) * 365)
+          proximaRevisionFecha = new Date()
+          proximaRevisionFecha.setDate(proximaRevisionFecha.getDate() + diasRestantes)
+        } else {
+          // Fallback: hoy + 30 días
+          proximaRevisionFecha = new Date()
+          proximaRevisionFecha.setDate(proximaRevisionFecha.getDate() + 30)
+        }
       }
     }
 

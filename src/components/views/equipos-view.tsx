@@ -33,6 +33,7 @@ import {
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Select,
   SelectContent,
@@ -88,6 +89,9 @@ interface Equipo {
   ultimoMantenimientoHoras?: number | null
   codigoProductoBC?: string | null
   contratoActivoId?: string | null
+  revisionesContratadasAnual?: number | null
+  esMaquinaPropia?: boolean
+  horasAnualesEstimadas?: number | null
 }
 
 interface EquipoFormData {
@@ -106,6 +110,10 @@ interface EquipoFormData {
   clienteId: string
   // Manual: nº de revisiones contratadas al año (para POR_CONTRATO M1/M2/FSCR/FSSR)
   revisionesContratadasAnual: string
+  // Campos para máquinas propias
+  esMaquinaPropia: boolean
+  horasAnualesEstimadas: string
+  umbralHorasActual: string // 500 o 1000 (vacío = default 500)
 }
 
 const EMPTY_FORM: EquipoFormData = {
@@ -123,6 +131,9 @@ const EMPTY_FORM: EquipoFormData = {
   notas: '',
   clienteId: '',
   revisionesContratadasAnual: '',
+  esMaquinaPropia: false,
+  horasAnualesEstimadas: '',
+  umbralHorasActual: '',
 }
 
 export function EquiposView() {
@@ -218,6 +229,9 @@ export function EquiposView() {
       notas: e.notas || '',
       clienteId: e.clienteId,
       revisionesContratadasAnual: e.revisionesContratadasAnual?.toString() || '',
+      esMaquinaPropia: e.esMaquinaPropia || false,
+      horasAnualesEstimadas: e.horasAnualesEstimadas?.toString() || '',
+      umbralHorasActual: e.umbralHorasActual?.toString() || '',
     })
     setDialogOpen(true)
   }
@@ -237,14 +251,23 @@ export function EquiposView() {
         revisionesContratadasAnual: form.revisionesContratadasAnual
           ? Number(form.revisionesContratadasAnual)
           : null,
+        horasAnualesEstimadas: form.horasAnualesEstimadas
+          ? Number(form.horasAnualesEstimadas)
+          : null,
+        umbralHorasActual: form.umbralHorasActual
+          ? Number(form.umbralHorasActual)
+          : null,
       }
       if (editing) {
         await apiFetch(`/api/equipos/${editing.id}`, 'PUT', payload)
         toast.success('Equipo actualizado correctamente')
-        // Si cambió revisionesContratadasAnual o ultimaRevision, forzar recalc del equipo
+        // Si cambiaron campos que afectan al cálculo, forzar recalc del equipo
         const cambioRevContratadas = form.revisionesContratadasAnual !== (editing.revisionesContratadasAnual?.toString() || '')
         const cambioUltimaRev = form.ultimaRevision !== (editing.ultimaRevision ? isoToInputDate(editing.ultimaRevision) : '')
-        if (cambioRevContratadas || cambioUltimaRev) {
+        const cambioMaquinaPropia = form.esMaquinaPropia !== (editing.esMaquinaPropia || false)
+        const cambioHorasAnuales = form.horasAnualesEstimadas !== (editing.horasAnualesEstimadas?.toString() || '')
+        const cambioUmbral = form.umbralHorasActual !== (editing.umbralHorasActual?.toString() || '')
+        if (cambioRevContratadas || cambioUltimaRev || cambioMaquinaPropia || cambioHorasAnuales || cambioUmbral) {
           await fetch(`/api/equipos/${editing.id}/recalc-revision`, { method: 'POST' })
             .catch(() => {})
         }
@@ -711,22 +734,83 @@ export function EquiposView() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="col-span-2 space-y-1.5">
-                <Label htmlFor="revContratadas">Revisiones contratadas / año (M1/M2/FSCR/FSSR)</Label>
-                <Input
-                  id="revContratadas"
-                  type="number"
-                  min="1"
-                  max="52"
-                  value={form.revisionesContratadasAnual}
-                  onChange={(e) => setForm({ ...form, revisionesContratadasAnual: e.target.value })}
-                  placeholder="Vacío = usa periodicidad del contrato (default 12m). 4 = trimestral, 2 = semestral, 12 = mensual"
-                />
-                <p className="text-[11px] text-muted-foreground">
-                  Solo aplica a equipos POR_CONTRATO (M1/M2/FSCR/FSSR). Si rellenas este campo, la próxima revisión se calcula con periodicidad = 12/N meses.
-                  <strong>Ejemplo:</strong> 4 → cada 3 meses · 2 → cada 6 meses · 1 → anual · 12 → mensual.
+              <div className="col-span-2 space-y-2 border-t border-border pt-4">
+                <p className="text-[12px] font-semibold text-muted-foreground uppercase tracking-wider">
+                  Tipo de máquina y cálculo de revisiones
                 </p>
+                <div className="flex items-start gap-3 p-3 bg-muted/30 rounded-md">
+                  <Checkbox
+                    id="esMaquinaPropia"
+                    checked={form.esMaquinaPropia}
+                    onCheckedChange={(v) => setForm({ ...form, esMaquinaPropia: v === true })}
+                    className="mt-0.5"
+                  />
+                  <div className="space-y-0.5">
+                    <Label htmlFor="esMaquinaPropia" className="text-[13px] font-medium cursor-pointer">
+                      Es máquina propia (sin contrato, revisión por horas)
+                    </Label>
+                    <p className="text-[11px] text-muted-foreground">
+                      Máquinas del cliente = tienen contrato M1/M2/FSCR/FSSR con revisiones por calendario.
+                      Máquinas propias = son de tu empresa, se revisan cada X horas (500 o 1000).
+                    </p>
+                  </div>
+                </div>
+                {form.esMaquinaPropia && (
+                  <div className="grid grid-cols-2 gap-3 pl-1">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="horasAnuales">Horas/año estimadas</Label>
+                      <Input
+                        id="horasAnuales"
+                        type="number"
+                        min="0"
+                        value={form.horasAnualesEstimadas}
+                        onChange={(e) => setForm({ ...form, horasAnualesEstimadas: e.target.value })}
+                        placeholder="Ej: 1500 (si no sabes, deja vacío)"
+                      />
+                      <p className="text-[11px] text-muted-foreground">
+                        Para estimar cuándo se alcanzará el umbral. Vacío = fallback hoy+30d.
+                      </p>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="umbral">Umbral de revisión</Label>
+                      <Select
+                        value={form.umbralHorasActual || '500'}
+                        onValueChange={(v) => setForm({ ...form, umbralHorasActual: v })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="500">Cada 500 h (mantenimiento normal)</SelectItem>
+                          <SelectItem value="1000">Cada 1000 h (revisión mayor)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-[11px] text-muted-foreground">
+                        Default 500h. Cambia a 1000h si solo se revisa cada 1000h.
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
+
+              {!form.esMaquinaPropia && (
+                <div className="col-span-2 space-y-1.5">
+                  <Label htmlFor="revContratadas">Revisiones contratadas / año (M1/M2/FSCR/FSSR)</Label>
+                  <Input
+                    id="revContratadas"
+                    type="number"
+                    min="1"
+                    max="52"
+                    value={form.revisionesContratadasAnual}
+                    onChange={(e) => setForm({ ...form, revisionesContratadasAnual: e.target.value })}
+                    placeholder="Vacío = usa periodicidad del contrato (default 12m). 4 = trimestral, 2 = semestral, 12 = mensual"
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Solo aplica a equipos POR_CONTRATO (M1/M2/FSCR/FSSR). Si rellenas este campo, la próxima revisión se calcula con periodicidad = 12/N meses.
+                    <strong>Ejemplo:</strong> 4 → cada 3 meses · 2 → cada 6 meses · 1 → anual · 12 → mensual.
+                  </p>
+                </div>
+              )}
               <div className="col-span-2 space-y-1.5">
                 <Label htmlFor="notasEq">Notas técnicas</Label>
                 <Textarea

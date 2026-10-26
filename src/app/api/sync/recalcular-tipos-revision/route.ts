@@ -45,6 +45,9 @@ function calcularProximaRevision(
   ultimaRevision: Date | null,
   fechaInicioContrato: Date | null,
   revisionesContratadasAnual?: number | null,
+  // Para máquinas propias (POR_HORAS):
+  umbralHorasConfigurado?: number | null, // 500 o 1000
+  horasAnualesEstimadas?: number | null, // tasa de uso/año
 ) {
   if (tipoRevision === 'POR_CONTRATO') {
     // Si el usuario ha puesto manualmente el nº de revisiones contratadas al año,
@@ -65,21 +68,36 @@ function calcularProximaRevision(
     }
   }
 
-  // POR_HORAS: umbral FIJO de 500h (un solo tipo de revisión)
-  const UMBRAL = 500
+  // POR_HORAS: máquinas propias con umbral configurable (default 500)
+  const UMBRAL = umbralHorasConfigurado && umbralHorasConfigurado > 0 ? umbralHorasConfigurado : 500
   const proximaHoras = Math.ceil((horasActuales + 1) / UMBRAL) * UMBRAL
   if (proximaHoras <= horasActuales) {
     return { tipoRevision, proximaFecha: null, proximaHoras: null, umbralActual: null, nivel: null }
   }
-  // Fecha estimada: hoy + 30 días (placeholder hasta que el técnico actualice horas)
-  const proximaFecha = new Date()
-  proximaFecha.setDate(proximaFecha.getDate() + 30)
+
+  // Cálculo de fecha estimada:
+  // Si tenemos tasa de uso (horasAnualesEstimadas), calcular cuándo se alcanzará el umbral
+  // horasRestantes = proximaHoras - horasActuales
+  // diasRestantes = (horasRestantes / horasAnualesEstimadas) * 365
+  // proximaFecha = hoy + diasRestantes
+  let proximaFecha: Date
+  if (horasAnualesEstimadas && horasAnualesEstimadas > 0) {
+    const horasRestantes = proximaHoras - horasActuales
+    const diasRestantes = Math.ceil((horasRestantes / horasAnualesEstimadas) * 365)
+    proximaFecha = new Date()
+    proximaFecha.setDate(proximaFecha.getDate() + diasRestantes)
+  } else {
+    // Fallback: hoy + 30 días (no sabemos tasa de uso)
+    proximaFecha = new Date()
+    proximaFecha.setDate(proximaFecha.getDate() + 30)
+  }
+
   return {
     tipoRevision,
     proximaFecha,
     proximaHoras,
     umbralActual: UMBRAL,
-    nivel: 'REVISION_500H' as string | null,
+    nivel: UMBRAL === 1000 ? 'REVISION_1000H' as string | null : 'REVISION_500H' as string | null,
   }
 }
 
@@ -125,6 +143,9 @@ export async function POST() {
         tipoRevision: true,
         tipoRevisionManual: true,
         revisionesContratadasAnual: true,
+        esMaquinaPropia: true,
+        horasAnualesEstimadas: true,
+        umbralHorasActual: true,
       },
       take: 10000,
     })
@@ -194,6 +215,8 @@ export async function POST() {
             eq.ultimaRevision,
             contratoEncontrado?.fechaInicio || null,
             eq.revisionesContratadasAnual,
+            eq.umbralHorasActual,
+            eq.horasAnualesEstimadas,
           )
           await db.equipo.update({
             where: { id: eq.id },
@@ -219,6 +242,8 @@ export async function POST() {
           eq.ultimaRevision,
           contratoEncontrado?.fechaInicio || null,
           eq.revisionesContratadasAnual,
+          eq.umbralHorasActual,
+          eq.horasAnualesEstimadas,
         )
 
         // Actualizar equipo

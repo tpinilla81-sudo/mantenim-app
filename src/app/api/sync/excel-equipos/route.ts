@@ -36,6 +36,10 @@ const CAC_PATTERN = /\b(CAC|CM\d?|CNT-)\s*\/?\s*(\d{2,4})\s*\/\s*(\d{3,6})\b/i
 // Regex: M1, M2, M3... + FSCR + FSSR (todos POR_CONTRATO)
 const GRUPO_POR_CONTRATO_PATTERN = /^(M\d+|FSCR|FSSR)$/i
 
+// Regex para detectar máquinas propias en la descripción del contrato
+// ("MANTENIMIENTO M PROPIAS", "M PROPIAS", "MANT. PROPIAS", etc.)
+const MAQUINAS_PROPIAS_PATTERN = /\b(MANTENIMIENTO\s+)?M\s*PROPIAS?\b/i
+
 // Marcas conocidas (en minúsculas para matching case-insensitive)
 const MARCAS_CONOCIDAS = [
   'LIEBHERR', 'COMANSA', 'TADANO', 'KONECRANES', 'KONE CRANES',
@@ -154,12 +158,19 @@ function calcularProximaRevision(
   _ultimoMantenimientoHoras: number | null,
   ultimaRevisionFecha: Date | null,
   fechaInicioContrato: Date | null,
+  revisionesContratadasAnual?: number | null,
+  umbralHorasConfigurado?: number | null,
+  horasAnualesEstimadas?: number | null,
 ): NextRevisionResult {
   if (tipoRevision === 'POR_CONTRATO') {
     // Calendar-based: próxima fecha = última revisión + periodicidad
+    let periodicidadFinal = periodicidadMeses
+    if (revisionesContratadasAnual && revisionesContratadasAnual > 0) {
+      periodicidadFinal = Math.round(12 / revisionesContratadasAnual)
+    }
     const base = ultimaRevisionFecha || fechaInicioContrato || new Date()
     const proximaFecha = new Date(base)
-    proximaFecha.setMonth(proximaFecha.getMonth() + periodicidadMeses)
+    proximaFecha.setMonth(proximaFecha.getMonth() + periodicidadFinal)
     return {
       tipoRevision: 'POR_CONTRATO',
       proximaFecha,
@@ -167,22 +178,31 @@ function calcularProximaRevision(
     }
   }
 
-  // POR_HORAS: umbral FIJO de 500h (sin niveles)
-  const UMBRAL = 500
+  // POR_HORAS: umbral configurable (default 500, configurable a 1000)
+  const UMBRAL = umbralHorasConfigurado && umbralHorasConfigurado > 0 ? umbralHorasConfigurado : 500
   const proximaHoras = Math.ceil((horasActuales + 1) / UMBRAL) * UMBRAL
   if (proximaHoras <= horasActuales) {
     return { tipoRevision: 'POR_HORAS' }
   }
 
-  const fechaEstimada = new Date()
-  fechaEstimada.setDate(fechaEstimada.getDate() + 30)
+  // Si tenemos tasa de uso, calcular fecha estimada real
+  let fechaEstimada: Date
+  if (horasAnualesEstimadas && horasAnualesEstimadas > 0) {
+    const horasRestantes = proximaHoras - horasActuales
+    const diasRestantes = Math.ceil((horasRestantes / horasAnualesEstimadas) * 365)
+    fechaEstimada = new Date()
+    fechaEstimada.setDate(fechaEstimada.getDate() + diasRestantes)
+  } else {
+    fechaEstimada = new Date()
+    fechaEstimada.setDate(fechaEstimada.getDate() + 30)
+  }
 
   return {
     tipoRevision: 'POR_HORAS',
     umbralActual: UMBRAL,
     proximaHoras,
     proximaFecha: fechaEstimada,
-    nivel: 'REVISION_500H',
+    nivel: UMBRAL === 1000 ? 'REVISION_1000H' : 'REVISION_500H',
   }
 }
 
@@ -377,6 +397,12 @@ export async function POST(request: NextRequest) {
         if (esPorContrato) result.m1M2Count++
         else result.porHorasCount++
 
+        // 2b. Detectar si es máquina propia (descripción del contrato interno lo dice)
+        // Si "MANTENIMIENTO M PROPIAS" en la descripción → máquina propia
+        const esMaquinaPropia = row.descContrato
+          ? MAQUINAS_PROPIAS_PATTERN.test(row.descContrato)
+          : false
+
         // 3. Determinar cliente
         let clienteId = contrato?.clienteId || null
         if (!clienteId) {
@@ -407,6 +433,10 @@ export async function POST(request: NextRequest) {
             notas: true,
             tipoRevision: true,
             tipoRevisionManual: true,
+            revisionesContratadasAnual: true,
+            umbralHorasActual: true,
+            horasAnualesEstimadas: true,
+            esMaquinaPropia: true,
           },
         })
         // También buscar por número de serie si no encontró por código
@@ -421,6 +451,10 @@ export async function POST(request: NextRequest) {
                 notas: true,
                 tipoRevision: true,
                 tipoRevisionManual: true,
+                revisionesContratadasAnual: true,
+                umbralHorasActual: true,
+                horasAnualesEstimadas: true,
+                esMaquinaPropia: true,
               },
             })
           : null
@@ -453,6 +487,10 @@ export async function POST(request: NextRequest) {
         }
 
         // 5. Recalcular próxima revisión con horas reales y tipo correcto
+        // Pasar también revisionesContratadasAnual y umbralHorasActual y horasAnualesEstimadas
+        const revisionesContratadas = equipoExistente?.revisionesContratadasAnual ?? null
+        const umbralConfig = equipoExistente?.umbralHorasActual ?? null
+        const horasAnuales = equipoExistente?.horasAnualesEstimadas ?? null
         const proximaRevisionFinal = calcularProximaRevision(
           horasFinales,
           tipoRevisionFinal,
@@ -460,6 +498,9 @@ export async function POST(request: NextRequest) {
           ultimoMantHorasFinal,
           ultimaRevisionFinal,
           row.fechaInicio || contrato?.fechaInicio || null,
+          revisionesContratadas,
+          umbralConfig,
+          horasAnuales,
         )
 
         // Construir datos para update/create
@@ -480,6 +521,7 @@ export async function POST(request: NextRequest) {
           codigoProductoBC: codProducto,
           contratoActivoId: row.numeroContrato || null,
           esHistorico: false, // está activo en BC ahora
+          esMaquinaPropia, // detectado por descripción
           // Solo sobreescribir tipoRevision si NO fue marcado manualmente
           ...(equipoExistente?.tipoRevisionManual
             ? {} // preservar tipoRevision actual
