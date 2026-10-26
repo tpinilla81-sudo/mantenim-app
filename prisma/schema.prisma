@@ -73,6 +73,10 @@ model Equipo {
   ultimoMantenimientoHoras Int? // horas del equipo en la última revisión
   codigoProductoBC  String?  @unique // Nº prod. servicio en Business Central
   contratoActivoId  String?  // CAI# actual (referencia texto libre)
+  // Para equipos POR_CONTRATO (M1/M2/FSCR/FSSR): nº de revisiones contratadas al año (manual)
+  // Si está a null, usa periodicidadMeses del contrato (default 12 meses)
+  // Si está a N, calcula periodicidad = 12/N meses (ej: 4 → trimestral, 2 → semestral)
+  revisionesContratadasAnual Int?
   esHistorico      Boolean  @default(false) // true si ya no aparece en BC (contrato caducado/equipo retirado)
 
   contratos         ContratoEquipo[]

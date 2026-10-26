@@ -239,7 +239,8 @@ function parseStr(v: unknown): string | null {
 // ============================================================
 // Lógica de cálculo de próxima revisión
 // ============================================================
-const M_PATTERN = /^M\d+$/i
+// Regex: M1, M2, M3... + FSCR + FSSR (todos POR_CONTRATO)
+const GRUPO_POR_CONTRATO_PATTERN = /^(M\d+|FSCR|FSSR)$/i
 
 function calcularProximaRevision(
   horasActuales: number,
@@ -247,11 +248,17 @@ function calcularProximaRevision(
   periodicidadMeses: number,
   ultimaRevision: Date | null,
   fechaInicioContrato: Date | null,
+  revisionesContratadasAnual?: number | null,
 ) {
   if (tipoRevision === 'POR_CONTRATO') {
+    // Si el usuario puso manualmente el nº de revisiones/año, usar 12/N como periodicidad
+    let periodicidadFinal = periodicidadMeses
+    if (revisionesContratadasAnual && revisionesContratadasAnual > 0) {
+      periodicidadFinal = Math.round(12 / revisionesContratadasAnual)
+    }
     const base = ultimaRevision || fechaInicioContrato || new Date()
     const proximaFecha = new Date(base)
-    proximaFecha.setMonth(proximaFecha.getMonth() + periodicidadMeses)
+    proximaFecha.setMonth(proximaFecha.getMonth() + periodicidadFinal)
     return {
       tipoRevision,
       proximaFecha,
@@ -600,6 +607,7 @@ export async function POST(request: NextRequest) {
               ultimaRevision: true,
               tipoRevision: true,
               tipoRevisionManual: true,
+              revisionesContratadasAnual: true,
             },
           })
           if (!equipo) continue
@@ -608,10 +616,10 @@ export async function POST(request: NextRequest) {
           // porque el usuario está forzando una actualización desde BC)
           const contratoInfo = contratoPorEquipo.get(equipoId)
           const grupo = contratoInfo?.grupo?.toUpperCase()
-          const esM1M2 = grupo ? M_PATTERN.test(grupo) : false
+          const esPorContrato = grupo ? GRUPO_POR_CONTRATO_PATTERN.test(grupo) : false
           const tipoRevision: 'POR_HORAS' | 'POR_CONTRATO' =
             equipo.tipoRevisionManual ? (equipo.tipoRevision as 'POR_HORAS' | 'POR_CONTRATO')
-            : esM1M2 ? 'POR_CONTRATO' : 'POR_HORAS'
+            : esPorContrato ? 'POR_CONTRATO' : 'POR_HORAS'
           const periodicidad = contratoInfo?.periodicidad || 12
 
           const calc = calcularProximaRevision(
@@ -620,6 +628,7 @@ export async function POST(request: NextRequest) {
             periodicidad,
             equipo.ultimaRevision,
             contratoInfo?.fechaInicio || null,
+            equipo.revisionesContratadasAnual,
           )
 
           await db.equipo.update({

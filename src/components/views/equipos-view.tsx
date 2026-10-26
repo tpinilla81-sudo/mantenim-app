@@ -104,6 +104,8 @@ interface EquipoFormData {
   ultimaRevision: string
   notas: string
   clienteId: string
+  // Manual: nº de revisiones contratadas al año (para POR_CONTRATO M1/M2/FSCR/FSSR)
+  revisionesContratadasAnual: string
 }
 
 const EMPTY_FORM: EquipoFormData = {
@@ -120,6 +122,7 @@ const EMPTY_FORM: EquipoFormData = {
   ultimaRevision: '',
   notas: '',
   clienteId: '',
+  revisionesContratadasAnual: '',
 }
 
 export function EquiposView() {
@@ -214,6 +217,7 @@ export function EquiposView() {
       ultimaRevision: isoToInputDate(e.ultimaRevision),
       notas: e.notas || '',
       clienteId: e.clienteId,
+      revisionesContratadasAnual: e.revisionesContratadasAnual?.toString() || '',
     })
     setDialogOpen(true)
   }
@@ -227,11 +231,25 @@ export function EquiposView() {
     }
     setSaving(true)
     try {
+      // Preparar payload con conversiones de tipos
+      const payload = {
+        ...form,
+        revisionesContratadasAnual: form.revisionesContratadasAnual
+          ? Number(form.revisionesContratadasAnual)
+          : null,
+      }
       if (editing) {
-        await apiFetch(`/api/equipos/${editing.id}`, 'PUT', form)
+        await apiFetch(`/api/equipos/${editing.id}`, 'PUT', payload)
         toast.success('Equipo actualizado correctamente')
+        // Si cambió revisionesContratadasAnual o ultimaRevision, forzar recalc del equipo
+        const cambioRevContratadas = form.revisionesContratadasAnual !== (editing.revisionesContratadasAnual?.toString() || '')
+        const cambioUltimaRev = form.ultimaRevision !== (editing.ultimaRevision ? isoToInputDate(editing.ultimaRevision) : '')
+        if (cambioRevContratadas || cambioUltimaRev) {
+          await fetch(`/api/equipos/${editing.id}/recalc-revision`, { method: 'POST' })
+            .catch(() => {})
+        }
       } else {
-        await apiFetch('/api/equipos', 'POST', form)
+        await apiFetch('/api/equipos', 'POST', payload)
         toast.success('Equipo creado correctamente')
       }
       setDialogOpen(false)
@@ -692,6 +710,22 @@ export function EquiposView() {
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+              <div className="col-span-2 space-y-1.5">
+                <Label htmlFor="revContratadas">Revisiones contratadas / año (M1/M2/FSCR/FSSR)</Label>
+                <Input
+                  id="revContratadas"
+                  type="number"
+                  min="1"
+                  max="52"
+                  value={form.revisionesContratadasAnual}
+                  onChange={(e) => setForm({ ...form, revisionesContratadasAnual: e.target.value })}
+                  placeholder="Vacío = usa periodicidad del contrato (default 12m). 4 = trimestral, 2 = semestral, 12 = mensual"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Solo aplica a equipos POR_CONTRATO (M1/M2/FSCR/FSSR). Si rellenas este campo, la próxima revisión se calcula con periodicidad = 12/N meses.
+                  <strong>Ejemplo:</strong> 4 → cada 3 meses · 2 → cada 6 meses · 1 → anual · 12 → mensual.
+                </p>
               </div>
               <div className="col-span-2 space-y-1.5">
                 <Label htmlFor="notasEq">Notas técnicas</Label>

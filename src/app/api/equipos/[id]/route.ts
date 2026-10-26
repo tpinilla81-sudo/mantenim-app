@@ -33,7 +33,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
     const {
       codigo, tipo, marca, modelo, numeroSerie, anioFabricacion,
       ubicacion, fechaInstalacion, estado, horasUso, ultimaRevision,
-      notas, clienteId,
+      notas, clienteId, revisionesContratadasAnual,
     } = body
 
     const equipo = await db.equipo.update({
@@ -52,6 +52,10 @@ export async function PUT(request: NextRequest, { params }: Params) {
         ultimaRevision: ultimaRevision ? new Date(ultimaRevision) : null,
         notas: notas || null,
         clienteId,
+        // Campo manual: nº de revisiones contratadas al año (null si vacío)
+        revisionesContratadasAnual: revisionesContratadasAnual
+          ? Number(revisionesContratadasAnual)
+          : null,
       },
       include: { cliente: true },
     })

@@ -25,7 +25,9 @@ function transformarContratoInterno(numero: string): string {
   return upper // sin transformación
 }
 
-const M_PATTERN = /^M\d+$/i
+// Regex para detectar grupos de contrato POR_CONTRATO (calendar-based maintenance)
+// Incluye: M1, M2, M3... (mantenimiento preventivo) + FSCR + FSSR (tipos específicos)
+const GRUPO_POR_CONTRATO_PATTERN = /^(M\d+|FSCR|FSSR)$/i
 
 interface RecalcResult {
   totalEquipos: number
@@ -42,11 +44,18 @@ function calcularProximaRevision(
   periodicidadMeses: number,
   ultimaRevision: Date | null,
   fechaInicioContrato: Date | null,
+  revisionesContratadasAnual?: number | null,
 ) {
   if (tipoRevision === 'POR_CONTRATO') {
+    // Si el usuario ha puesto manualmente el nº de revisiones contratadas al año,
+    // usar esa como periodicidad (12/N meses)
+    let periodicidadFinal = periodicidadMeses
+    if (revisionesContratadasAnual && revisionesContratadasAnual > 0) {
+      periodicidadFinal = Math.round(12 / revisionesContratadasAnual)
+    }
     const base = ultimaRevision || fechaInicioContrato || new Date()
     const proximaFecha = new Date(base)
-    proximaFecha.setMonth(proximaFecha.getMonth() + periodicidadMeses)
+    proximaFecha.setMonth(proximaFecha.getMonth() + periodicidadFinal)
     return {
       tipoRevision,
       proximaFecha,
@@ -115,6 +124,7 @@ export async function POST() {
         contratoActivoId: true,
         tipoRevision: true,
         tipoRevisionManual: true,
+        revisionesContratadasAnual: true,
       },
       take: 10000,
     })
@@ -142,7 +152,8 @@ export async function POST() {
           }
           if (contratoEncontrado?.codGrupoContrato) {
             const grupo = contratoEncontrado.codGrupoContrato.toUpperCase()
-            if (M_PATTERN.test(grupo)) {
+            // Aplica para M1, M2, M3... + FSCR + FSSR
+            if (GRUPO_POR_CONTRATO_PATTERN.test(grupo)) {
               nuevoTipo = 'POR_CONTRATO'
               periodicidad = contratoEncontrado.periodicidadMeses || 12
             }
@@ -182,6 +193,7 @@ export async function POST() {
             periodicidad,
             eq.ultimaRevision,
             contratoEncontrado?.fechaInicio || null,
+            eq.revisionesContratadasAnual,
           )
           await db.equipo.update({
             where: { id: eq.id },
@@ -206,6 +218,7 @@ export async function POST() {
           periodicidad,
           eq.ultimaRevision,
           contratoEncontrado?.fechaInicio || null,
+          eq.revisionesContratadasAnual,
         )
 
         // Actualizar equipo

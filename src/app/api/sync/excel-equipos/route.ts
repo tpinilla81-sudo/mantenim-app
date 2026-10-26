@@ -33,7 +33,8 @@ interface ParsedRow {
 const CAC_PATTERN = /\b(CAC|CM\d?|CNT-)\s*\/?\s*(\d{2,4})\s*\/\s*(\d{3,6})\b/i
 
 // Regex para detectar grupos de contrato M1, M2, M3... (calendar-based maintenance)
-const M_PATTERN = /^M\d+$/i
+// Regex: M1, M2, M3... + FSCR + FSSR (todos POR_CONTRATO)
+const GRUPO_POR_CONTRATO_PATTERN = /^(M\d+|FSCR|FSSR)$/i
 
 // Marcas conocidas (en minúsculas para matching case-insensitive)
 const MARCAS_CONOCIDAS = [
@@ -369,11 +370,11 @@ export async function POST(request: NextRequest) {
           // (puede que el contrato esté con otro formato de número)
         }
 
-        // 2. Determinar tipo de revisión basado en M1/M2
+        // 2. Determinar tipo de revisión basado en M1/M2/FSCR/FSSR
         const codGrupoContrato = contrato?.codGrupoContrato || null
-        const esM1M2 = codGrupoContrato ? M_PATTERN.test(codGrupoContrato) : false
-        const tipoRevision: 'POR_HORAS' | 'POR_CONTRATO' = esM1M2 ? 'POR_CONTRATO' : 'POR_HORAS'
-        if (esM1M2) result.m1M2Count++
+        const esPorContrato = codGrupoContrato ? GRUPO_POR_CONTRATO_PATTERN.test(codGrupoContrato) : false
+        const tipoRevision: 'POR_HORAS' | 'POR_CONTRATO' = esPorContrato ? 'POR_CONTRATO' : 'POR_HORAS'
+        if (esPorContrato) result.m1M2Count++
         else result.porHorasCount++
 
         // 3. Determinar cliente
