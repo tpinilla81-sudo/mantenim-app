@@ -111,8 +111,9 @@ export function SyncView() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   // Default: INCREMENTAL (preserva datos manuales). reemplazoTotal=false
   const [reemplazoTotal, setReemplazoTotal] = useState(false)
-  // Tipo de Excel a subir: 'contratos' (Excel 1) o 'equipos' (Excel 2)
-  const [excelType, setExcelType] = useState<'contratos' | 'equipos'>('contratos')
+  // Tipo de Excel a subir: 'contratos' (Excel 1), 'equipos' (Excel 2) o 'flexible' (auto-detecta columnas)
+  const [excelType, setExcelType] = useState<'contratos' | 'equipos' | 'flexible'>('contratos')
+  const [previewResult, setPreviewResult] = useState<{ columnsDetected: Array<{header: string; field: string; entity: string}>; columnsNotDetected: string[]; rowsTotal: number } | null>(null)
   const [uploading, setUploading] = useState(false)
   const [recalculando, setRecalculando] = useState(false)
   const [progress, setProgress] = useState(0)
@@ -135,6 +136,7 @@ export function SyncView() {
     }
     setSelectedFile(file)
     setLastResult(null)
+    setPreviewResult(null)
   }
 
   const handleDrop = useCallback((e: React.DragEvent) => {
@@ -144,7 +146,93 @@ export function SyncView() {
     if (file) handleFileSelect(file)
   }, [])
 
+  // Modo flexible: primero hace dry-run para mostrar columnas detectadas, luego el usuario confirma
+  const handlePreview = async () => {
+    if (!selectedFile) {
+      toast.error('Selecciona primero un archivo')
+      return
+    }
+    setUploading(true)
+    setProgress(10)
+    try {
+      const formData = new FormData()
+      formData.append('file', selectedFile)
+      formData.append('dryRun', 'true')
+
+      setProgress(40)
+      const res = await fetch('/api/sync/excel-flexible', {
+        method: 'POST',
+        body: formData,
+      })
+      setProgress(80)
+
+      const json = await res.json()
+      if (!res.ok) {
+        throw new Error(json.error || json.detail || `Error ${res.status}`)
+      }
+
+      setProgress(100)
+      setPreviewResult({
+        columnsDetected: json.columnsDetected || [],
+        columnsNotDetected: json.columnsNotDetected || [],
+        rowsTotal: json.rowsTotal || 0,
+      })
+      toast.success(`Detectadas ${json.columnsDetected?.length || 0} columnas en ${json.rowsTotal || 0} filas`)
+    } catch (err) {
+      toast.error('Error al analizar Excel', { description: (err as Error).message })
+    } finally {
+      setUploading(false)
+      setTimeout(() => setProgress(0), 1500)
+    }
+  }
+
+  // Confirma y aplica los cambios del Excel flexible
+  const handleConfirmFlexible = async () => {
+    if (!selectedFile) {
+      toast.error('Selecciona primero un archivo')
+      return
+    }
+    setUploading(true)
+    setProgress(10)
+    try {
+      const formData = new FormData()
+      formData.append('file', selectedFile)
+      formData.append('dryRun', 'false')
+
+      setProgress(40)
+      const res = await fetch('/api/sync/excel-flexible', {
+        method: 'POST',
+        body: formData,
+      })
+      setProgress(80)
+
+      const json = await res.json()
+      if (!res.ok) {
+        throw new Error(json.error || json.detail || `Error ${res.status}`)
+      }
+
+      setProgress(100)
+      setLastResult(json as SyncResult)
+      toast.success(
+        `Sincronización completada: ${json.rowsUpdated} filas actualizadas · ${json.revisionesRecalculadas} revisiones recalculadas`
+      )
+      setSelectedFile(null)
+      setPreviewResult(null)
+      refetchAll()
+    } catch (err) {
+      toast.error('Error en la sincronización', { description: (err as Error).message })
+    } finally {
+      setUploading(false)
+      setTimeout(() => setProgress(0), 1500)
+    }
+  }
+
   const handleUpload = async () => {
+    if (excelType === 'flexible') {
+      // En modo flexible, primero dry-run (preview)
+      await handlePreview()
+      return
+    }
     if (!selectedFile) {
       toast.error('Selecciona primero un archivo')
       return
@@ -352,13 +440,13 @@ export function SyncView() {
           </div>
 
           {/* Selección de tipo de Excel */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <label className="text-[12px] text-muted-foreground mr-2">Tipo de Excel:</label>
             <Button
               type="button"
               variant={excelType === 'contratos' ? 'default' : 'outline'}
               size="sm"
-              onClick={() => { setExcelType('contratos'); setSelectedFile(null) }}
+              onClick={() => { setExcelType('contratos'); setSelectedFile(null); setPreviewResult(null) }}
               className="h-8"
             >
               Excel 1 · Contratos
@@ -367,10 +455,19 @@ export function SyncView() {
               type="button"
               variant={excelType === 'equipos' ? 'default' : 'outline'}
               size="sm"
-              onClick={() => { setExcelType('equipos'); setSelectedFile(null) }}
+              onClick={() => { setExcelType('equipos'); setSelectedFile(null); setPreviewResult(null) }}
               className="h-8"
             >
               Excel 2 · Equipos
+            </Button>
+            <Button
+              type="button"
+              variant={excelType === 'flexible' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => { setExcelType('flexible'); setSelectedFile(null); setPreviewResult(null) }}
+              className="h-8 border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+            >
+              ⚡ Excel flexible
             </Button>
           </div>
 
@@ -414,7 +511,9 @@ export function SyncView() {
                 <p className="text-[12px] text-muted-foreground">
                   {excelType === 'contratos'
                     ? 'Excel 1: "Contratos de servicio" — Lista de contratos con su grupo (M1/M2, ALQLARGO...)'
-                    : 'Excel 2: "Líneas de Contratos de Servicio Internos" — Vínculo contrato ↔ máquina con horas'}
+                    : excelType === 'equipos'
+                      ? 'Excel 2: "Líneas de Contratos de Servicio Internos" — Vínculo contrato ↔ máquina con horas'
+                      : '⚡ Excel flexible: cualquier exportación de BC con cualquier combinación de columnas. La app detecta automáticamente qué campos actualizar por Nº de Producto/Cliente/Serie/Contrato.'}
                 </p>
               </div>
             )}
@@ -440,10 +539,52 @@ export function SyncView() {
             </div>
           </div>
 
+          {/* Preview de columnas detectadas (solo modo flexible) */}
+          {excelType === 'flexible' && previewResult && (
+            <div className="border border-emerald-300 bg-emerald-50 rounded-md p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-emerald-900">
+                  ✅ Detectadas {previewResult.columnsDetected.length} columnas reconocibles en {previewResult.rowsTotal.toLocaleString('es-ES')} filas
+                </p>
+              </div>
+              {previewResult.columnsDetected.length > 0 && (
+                <div>
+                  <p className="text-[11px] text-emerald-800 uppercase tracking-wider mb-2">
+                    Campos que se actualizarán:
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
+                    {previewResult.columnsDetected.map((c, i) => (
+                      <div key={i} className="text-[12px] flex items-center gap-2 bg-white/50 rounded px-2 py-1">
+                        <span className="font-mono text-emerald-900">{c.header}</span>
+                        <span className="text-emerald-700">→</span>
+                        <span className="text-emerald-700">
+                          {c.entity === 'equipo' ? '🚜' : c.entity === 'cliente' ? '👥' : '📄'} {c.field}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {previewResult.columnsNotDetected.length > 0 && (
+                <div>
+                  <p className="text-[11px] text-muted-foreground uppercase tracking-wider mb-1">
+                    Columnas no reconocidas (se ignorarán):
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {previewResult.columnsNotDetected.join(' · ')}
+                  </p>
+                </div>
+              )}
+              <p className="text-[11px] text-emerald-800 mt-2">
+                Pulsa <strong>"Confirmar y aplicar"</strong> para actualizar la BD. Solo se actualizarán los campos detectados. Tus datos manuales (zona, horas, revisiones completadas, notas) se preservan.
+              </p>
+            </div>
+          )}
+
           {/* Acciones */}
           <div className="flex flex-wrap items-center gap-2">
             <Button
-              onClick={handleUpload}
+              onClick={excelType === 'flexible' && previewResult ? handleConfirmFlexible : handleUpload}
               disabled={!selectedFile || uploading}
             >
               {uploading ? (
@@ -454,7 +595,9 @@ export function SyncView() {
               ) : (
                 <>
                   <RefreshCw className="w-4 h-4 mr-1.5" />
-                  Sincronizar {excelType === 'equipos' ? 'equipos' : 'contratos'}
+                  {excelType === 'flexible'
+                    ? (previewResult ? 'Confirmar y aplicar' : 'Analizar columnas')
+                    : `Sincronizar ${excelType === 'equipos' ? 'equipos' : 'contratos'}`}
                 </>
               )}
             </Button>
