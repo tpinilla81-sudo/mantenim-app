@@ -52,13 +52,13 @@ const COLUMN_RULES: ColumnRule[] = [
   {
     field: 'ultimaRevision',
     entity: 'equipo',
-    headers: ['ULTIMA REVISION', 'ULT. REVISION', 'ULT REVISION', 'FECHA ULTIMA REVISION', 'FECHA ULT REVISION', 'ULTIMA REVISION FECHA'],
+    headers: ['ULTIMA REVISION', 'ULT. REVISION', 'ULT REVISION', 'FECHA ULTIMA REVISION', 'FECHA ULT REVISION', 'ULTIMA REVISION FECHA', 'FECHA REGISTRO'],
     parse: parseDate,
   },
   {
     field: 'horasUso',
     entity: 'equipo',
-    headers: ['HORAS ACTUALES', 'HORAS', 'Nº HORAS SALIDA', 'NO. HORAS SALIDA', 'HORAS DE USO', 'HORAS USADAS', 'CONTADOR HORAS'],
+    headers: ['HORAS ACTUALES', 'HORAS', 'Nº HORAS SALIDA', 'NO. HORAS SALIDA', 'HORAS DE USO', 'HORAS USADAS', 'CONTADOR HORAS', 'Nº DE HORAS', 'NUMERO DE HORAS'],
     parse: parseNum,
   },
   {
@@ -70,7 +70,7 @@ const COLUMN_RULES: ColumnRule[] = [
   {
     field: 'modelo',
     entity: 'equipo',
-    headers: ['MODELO', 'DESCRIPCION LINEA CONTRATO', 'DESCRIPCION LINEA', 'DESC. LINEA'],
+    headers: ['MODELO', 'DESCRIPCION LINEA CONTRATO', 'DESCRIPCION LINEA', 'DESC. LINEA', 'DESCRIPCION'],
     parse: (v) => String(v || '').trim(),
   },
   {
@@ -156,7 +156,7 @@ const COLUMN_RULES: ColumnRule[] = [
   {
     field: 'zona',
     entity: 'cliente',
-    headers: ['ZONA', 'DELEGACION', 'CODIGO DELEGACION', 'SUCURSAL', 'SEDE'],
+    headers: ['ZONA', 'DELEGACION', 'CODIGO DELEGACION', 'SUCURSAL', 'SEDE', 'SHIP-TO CODE', 'CODIGO ENVIO', 'COD. ENVIO'],
     parse: (v) => String(v || '').trim(),
   },
 
@@ -170,7 +170,7 @@ const COLUMN_RULES: ColumnRule[] = [
   {
     field: 'estado',
     entity: 'contrato',
-    headers: ['ESTADO'],
+    headers: ['ESTADO', 'ESTADO CONTRATO'],
     parse: (v) => String(v || '').trim(),
   },
   {
