@@ -46,7 +46,7 @@ export async function POST(_request: NextRequest, { params }: Params) {
       nivel = 'CONTRATO'
     } else {
       // Para POR_HORAS: umbral FIJO de 500h (sin niveles)
-      const UMBRAL = 500
+      const UMBRAL = 1000
       const proximaHoras = Math.ceil((equipo.horasUso + 1) / UMBRAL) * UMBRAL
       if (proximaHoras > equipo.horasUso) {
         proximaRevisionHoras = proximaHoras
@@ -100,7 +100,7 @@ export async function POST(_request: NextRequest, { params }: Params) {
     console.error('POST /api/equipos/[id]/toggle-revision error:', error)
     return NextResponse.json(
       { error: 'Error al alternar tipo de revisión' },
-      { status: 500 }
+      { status: 1000 }
     )
   }
 }

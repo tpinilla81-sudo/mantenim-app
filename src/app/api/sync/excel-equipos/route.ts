@@ -179,7 +179,7 @@ function calcularProximaRevision(
   }
 
   // POR_HORAS: umbral configurable (default 500, configurable a 1000)
-  const UMBRAL = umbralHorasConfigurado && umbralHorasConfigurado > 0 ? umbralHorasConfigurado : 500
+  const UMBRAL = umbralHorasConfigurado && umbralHorasConfigurado > 0 ? umbralHorasConfigurado : 1000
   const proximaHoras = Math.ceil((horasActuales + 1) / UMBRAL) * UMBRAL
   if (proximaHoras <= horasActuales) {
     return { tipoRevision: 'POR_HORAS' }
@@ -664,7 +664,7 @@ export async function POST(request: NextRequest) {
     }
     return NextResponse.json(
       { error: 'Error al procesar el Excel de equipos', detail: String(error) },
-      { status: 500 }
+      { status: 1000 }
     )
   }
 }

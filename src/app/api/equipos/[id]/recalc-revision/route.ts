@@ -59,7 +59,7 @@ export async function POST(_request: NextRequest, { params }: Params) {
       nivel = 'CONTRATO'
     } else {
       // POR_HORAS: umbral configurable (500 o 1000) — para máquinas propias
-      const UMBRAL = equipo.umbralHorasActual && equipo.umbralHorasActual > 0 ? equipo.umbralHorasActual : 500
+      const UMBRAL = equipo.umbralHorasActual && equipo.umbralHorasActual > 0 ? equipo.umbralHorasActual : 1000
       const prox = Math.ceil((equipo.horasUso + 1) / UMBRAL) * UMBRAL
       if (prox > equipo.horasUso) {
         proximaRevisionHoras = prox
@@ -120,7 +120,7 @@ export async function POST(_request: NextRequest, { params }: Params) {
     console.error('POST /api/equipos/[id]/recalc-revision error:', error)
     return NextResponse.json(
       { error: 'Error al recalcular revisión' },
-      { status: 500 }
+      { status: 1000 }
     )
   }
 }

@@ -26,13 +26,13 @@ const COLUMN_RULES: ColumnRule[] = [
   {
     field: '__KEY_PRODUCTO__',
     entity: 'equipo',
-    headers: ['Nº PROD. SERVICIO', 'NO. PROD. SERVICIO', 'Nº PRODUCTO', 'NO. PRODUCTO', 'Nº PRODUCTO SERVICIO', 'PRODUCTO'],
+    headers: ['Nº PROD. SERVICIO', 'NO. PROD. SERVICIO', 'Nº PRODUCTO', 'NO. PRODUCTO', 'Nº PRODUCTO SERVICIO', 'PRODUCTO', 'Nº PEDIDO SERVICIO', 'NO. PEDIDO SERVICIO', 'PEDIDO SERVICIO'],
     parse: (v) => String(v || '').trim(),
   },
   {
     field: '__KEY_CLIENTE__',
     entity: 'cliente',
-    headers: ['Nº CLIENTE', 'NO. CLIENTE', 'NUM CLIENTE', 'Nº FACTURA-A Nº CLIENTE', 'FACTURA-A Nº CLIENTE', 'CLIENTE'],
+    headers: ['Nº CLIENTE', 'NO. CLIENTE', 'NUM CLIENTE', 'Nº FACTURA-A Nº CLIENTE', 'FACTURA-A Nº CLIENTE', 'CLIENTE', 'Nº CLIENTE BC', 'CODIGO CLIENTE'],
     parse: (v) => String(v || '').trim(),
   },
   {
@@ -52,7 +52,7 @@ const COLUMN_RULES: ColumnRule[] = [
   {
     field: 'ultimaRevision',
     entity: 'equipo',
-    headers: ['ULTIMA REVISION', 'ULT. REVISION', 'ULT REVISION', 'FECHA ULTIMA REVISION', 'FECHA ULT REVISION', 'ULTIMA REVISION FECHA', 'FECHA REGISTRO'],
+    headers: ['ULTIMA REVISION', 'ULT. REVISION', 'ULT REVISION', 'FECHA ULTIMA REVISION', 'FECHA ULT REVISION', 'ULTIMA REVISION FECHA', 'FECHA REGISTRO', 'FECHA VENCIM.', 'FECHA VENCIMIENTO REVISION', 'FECHA PROXIMA REVISION'],
     parse: parseDate,
   },
   {
@@ -271,7 +271,7 @@ function calcularProximaRevision(
   }
 
   // POR_HORAS: umbral configurable (default 500, configurable a 1000)
-  const UMBRAL = umbralHorasConfigurado && umbralHorasConfigurado > 0 ? umbralHorasConfigurado : 500
+  const UMBRAL = umbralHorasConfigurado && umbralHorasConfigurado > 0 ? umbralHorasConfigurado : 1000
   const proximaHoras = Math.ceil((horasActuales + 1) / UMBRAL) * UMBRAL
   if (proximaHoras <= horasActuales) {
     return { tipoRevision, proximaFecha: null, proximaHoras: null, umbralActual: null, nivel: null }
@@ -730,7 +730,7 @@ export async function POST(request: NextRequest) {
     }
     return NextResponse.json(
       { error: 'Error al procesar el Excel flexible', detail: String(error) },
-      { status: 500 }
+      { status: 1000 }
     )
   }
 }

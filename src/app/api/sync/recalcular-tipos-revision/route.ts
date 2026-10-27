@@ -69,7 +69,7 @@ function calcularProximaRevision(
   }
 
   // POR_HORAS: máquinas propias con umbral configurable (default 500)
-  const UMBRAL = umbralHorasConfigurado && umbralHorasConfigurado > 0 ? umbralHorasConfigurado : 500
+  const UMBRAL = umbralHorasConfigurado && umbralHorasConfigurado > 0 ? umbralHorasConfigurado : 1000
   const proximaHoras = Math.ceil((horasActuales + 1) / UMBRAL) * UMBRAL
   if (proximaHoras <= horasActuales) {
     return { tipoRevision, proximaFecha: null, proximaHoras: null, umbralActual: null, nivel: null }
@@ -307,7 +307,7 @@ export async function POST() {
     console.error('POST /api/sync/recalcular-tipos-revision error:', error)
     return NextResponse.json(
       { error: 'Error al recalcular tipos de revisión', detail: String(error) },
-      { status: 500 }
+      { status: 1000 }
     )
   }
 }
