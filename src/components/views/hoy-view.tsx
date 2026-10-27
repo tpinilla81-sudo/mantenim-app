@@ -236,12 +236,6 @@ export function HoyView({ onNavigate }: { onNavigate: (v: ViewKey) => void }) {
           color="sky"
         />
         <KpiCard
-          label="OTs programadas"
-          value={data.resumen.otsHoy}
-          icon={Wrench}
-          color="emerald"
-        />
-        <KpiCard
           label="Vencidas"
           value={data.resumen.vencidas}
           icon={AlertTriangle}
@@ -264,14 +258,14 @@ export function HoyView({ onNavigate }: { onNavigate: (v: ViewKey) => void }) {
       </section>
 
       {/* Lo que toca HOY */}
-      {(data.revisionesHoy.length > 0 || data.otsHoy.length > 0) ? (
+      {data.revisionesHoy.length > 0 ? (
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base font-semibold flex items-center gap-2">
               <CalendarClock className="w-4 h-4 text-primary" />
               Pendientes de hoy
               <span className="ml-1 text-[12px] text-muted-foreground font-normal">
-                ({data.revisionesHoy.length + data.otsHoy.length})
+                ({data.revisionesHoy.length})
               </span>
             </CardTitle>
           </CardHeader>
@@ -290,20 +284,7 @@ export function HoyView({ onNavigate }: { onNavigate: (v: ViewKey) => void }) {
                 onNavigate={() => onNavigate('revisiones')}
               />
             ))}
-            {data.otsHoy.map((o) => (
-              <PendienteItem
-                key={`ot-${o.id}`}
-                numero={o.numero}
-                titulo={`OT · ${o.tipo === 'PREVENTIVO' ? 'Preventivo' : o.tipo === 'CORRECTIVO' ? 'Correctivo' : 'Reparación'}`}
-                descripcion={o.descripcion}
-                meta={`${o.equipo.codigo} · ${o.equipo.cliente?.nombre || '—'}${o.tecnico ? ` · ${o.tecnico.nombre} ${o.tecnico.apellidos}` : ''}`}
-                badge={<EstadoBadge estado={o.prioridad} />}
-                badgeRight={<EstadoBadge estado={o.estado} />}
-                onMarkDone={null}
-                isMarking={false}
-                onNavigate={() => onNavigate('ordenes')}
-              />
-            ))}
+
           </CardContent>
         </Card>
       ) : (
@@ -465,10 +446,7 @@ export function HoyView({ onNavigate }: { onNavigate: (v: ViewKey) => void }) {
       {/* Acciones rápidas */}
       <Card>
         <CardContent className="p-4 flex flex-wrap gap-2">
-          <Button onClick={() => onNavigate('ordenes')}>
-            <Plus className="w-4 h-4 mr-1.5" />
-            Nueva orden de trabajo
-          </Button>
+
           <Button variant="outline" onClick={() => onNavigate('revisiones')}>
             <CalendarClock className="w-4 h-4 mr-1.5" />
             Calendario de revisiones

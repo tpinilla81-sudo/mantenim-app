@@ -5,7 +5,6 @@ import {
   Users,
   Forklift,
   FileText,
-  ClipboardList,
   CalendarDays,
   HardHat,
   Menu,
@@ -19,7 +18,6 @@ import { HoyView } from '@/components/views/hoy-view'
 import { ClientesView } from '@/components/views/clientes-view'
 import { EquiposView } from '@/components/views/equipos-view'
 import { ContratosView } from '@/components/views/contratos-view'
-import { OrdenesView } from '@/components/views/ordenes-view'
 import { CalendarioView } from '@/components/views/calendario-view'
 import { SyncView } from '@/components/views/sync-view'
 import { RevisionesView } from '@/components/views/revisiones-view'
@@ -29,7 +27,6 @@ type ViewKey =
   | 'clientes'
   | 'equipos'
   | 'contratos'
-  | 'ordenes'
   | 'calendario'
   | 'sync'
   | 'revisiones'
@@ -65,12 +62,6 @@ const NAV_ITEMS: NavItem[] = [
     label: 'Contratos',
     icon: FileText,
     description: 'Acuerdos de mantenimiento',
-  },
-  {
-    key: 'ordenes',
-    label: 'Órdenes de Trabajo',
-    icon: ClipboardList,
-    description: 'Mantenimientos programados y en curso',
   },
   {
     key: 'calendario',
@@ -124,8 +115,6 @@ export default function Home() {
         return <EquiposView />
       case 'contratos':
         return <ContratosView />
-      case 'ordenes':
-        return <OrdenesView />
       case 'calendario':
         return <CalendarioView onNavigate={setActiveView} />
       case 'sync':
