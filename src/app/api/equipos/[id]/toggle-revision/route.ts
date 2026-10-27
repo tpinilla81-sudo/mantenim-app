@@ -100,7 +100,7 @@ export async function POST(_request: NextRequest, { params }: Params) {
     console.error('POST /api/equipos/[id]/toggle-revision error:', error)
     return NextResponse.json(
       { error: 'Error al alternar tipo de revisión' },
-      { status: 1000 }
+      { status: 500 }
     )
   }
 }

@@ -664,7 +664,7 @@ export async function POST(request: NextRequest) {
     }
     return NextResponse.json(
       { error: 'Error al procesar el Excel de equipos', detail: String(error) },
-      { status: 1000 }
+      { status: 500 }
     )
   }
 }

@@ -100,7 +100,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     console.error('PATCH /api/revisiones/[id] error:', error)
     return NextResponse.json(
       { error: 'Error al actualizar revisión' },
-      { status: 1000 }
+      { status: 500 }
     )
   }
 }
@@ -115,7 +115,7 @@ export async function DELETE(_request: NextRequest, { params }: Params) {
     console.error('DELETE /api/revisiones/[id] error:', error)
     return NextResponse.json(
       { error: 'Error al eliminar revisión' },
-      { status: 1000 }
+      { status: 500 }
     )
   }
 }

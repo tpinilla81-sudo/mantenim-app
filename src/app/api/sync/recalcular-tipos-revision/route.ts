@@ -307,7 +307,7 @@ export async function POST() {
     console.error('POST /api/sync/recalcular-tipos-revision error:', error)
     return NextResponse.json(
       { error: 'Error al recalcular tipos de revisión', detail: String(error) },
-      { status: 1000 }
+      { status: 500 }
     )
   }
 }
