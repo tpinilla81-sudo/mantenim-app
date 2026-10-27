@@ -2,32 +2,23 @@
 
 import { useState, useEffect } from 'react'
 import {
-  Users,
+  Sun,
   Forklift,
-  FileText,
-  CalendarDays,
-  HardHat,
   Menu,
   X,
   Database,
   CalendarClock,
-  Sun,
+  Settings,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { HoyView } from '@/components/views/hoy-view'
-import { ClientesView } from '@/components/views/clientes-view'
 import { EquiposView } from '@/components/views/equipos-view'
-import { ContratosView } from '@/components/views/contratos-view'
-import { CalendarioView } from '@/components/views/calendario-view'
 import { SyncView } from '@/components/views/sync-view'
 import { RevisionesView } from '@/components/views/revisiones-view'
 
 type ViewKey =
   | 'hoy'
-  | 'clientes'
   | 'equipos'
-  | 'contratos'
-  | 'calendario'
   | 'sync'
   | 'revisiones'
 
@@ -41,45 +32,21 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   {
     key: 'hoy',
-    label: 'Hoy',
+    label: 'Revisiones',
     icon: Sun,
-    description: 'Trabajo del día: pendientes, vencidas y urgentes',
-  },
-  {
-    key: 'clientes',
-    label: 'Clientes',
-    icon: Users,
-    description: 'Empresas y contactos',
+    description: 'Revisiones programadas, vencidas y próximas',
   },
   {
     key: 'equipos',
     label: 'Equipos',
     icon: Forklift,
-    description: 'Grúas y montacargas',
-  },
-  {
-    key: 'contratos',
-    label: 'Contratos',
-    icon: FileText,
-    description: 'Acuerdos de mantenimiento',
-  },
-  {
-    key: 'calendario',
-    label: 'Calendario',
-    icon: CalendarDays,
-    description: 'Vista mensual de intervenciones',
+    description: 'Listado de máquinas',
   },
   {
     key: 'sync',
     label: 'Sincronizar BC',
     icon: Database,
-    description: 'Importar contratos desde Business Central',
-  },
-  {
-    key: 'revisiones',
-    label: 'Revisiones',
-    icon: CalendarClock,
-    description: 'Calendario de revisiones calculadas',
+    description: 'Importar datos desde Business Central',
   },
 ]
 
@@ -109,14 +76,8 @@ export default function Home() {
     switch (activeView) {
       case 'hoy':
         return <HoyView onNavigate={setActiveView} />
-      case 'clientes':
-        return <ClientesView />
       case 'equipos':
         return <EquiposView />
-      case 'contratos':
-        return <ContratosView />
-      case 'calendario':
-        return <CalendarioView onNavigate={setActiveView} />
       case 'sync':
         return <SyncView />
       case 'revisiones':
@@ -149,7 +110,7 @@ export default function Home() {
         {/* Marca */}
         <div className="flex items-center gap-2 px-5 h-16 border-b border-sidebar-border">
           <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary text-primary-foreground">
-            <HardHat className="w-4 h-4" />
+            <Sun className="w-4 h-4" />
           </div>
           <div className="flex flex-col leading-tight">
             <span className="text-sm font-semibold tracking-tight">Mantenim</span>
