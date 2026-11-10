@@ -670,11 +670,12 @@ export async function POST(request: NextRequest) {
         }
 
         // ============================================================
-        // MODO SOLO-NUEVOS: si el equipo YA EXISTE, saltarlo entirely
-        // No sobreescribir datos manuales (horas, revisiones, notas, etc.)
-        // Solo incorporar equipos NUEVOS que no estén en la BD
+        // MODO SOLO-NUEVOS: si el equipo YA EXISTÍA antes de esta subida,
+        // saltarlo entirely. No sobreescribir datos manuales.
+        // Solo incorporar equipos NUEVOS que no estén en la BD.
         // ============================================================
-        if (equipoId) {
+        const equipoYaExistia = equipoId !== null
+        if (equipoYaExistia) {
           result.rowsSkipped++
           continue
         }
