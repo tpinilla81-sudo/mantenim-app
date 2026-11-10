@@ -17,6 +17,7 @@ import {
   ChevronRight,
   ToggleLeft,
   ToggleRight,
+  Loader2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -380,9 +381,19 @@ export function EquiposView() {
           variant="outline"
           size="sm"
           onClick={() => fileUploadRef.current?.click()}
+          disabled={uploadingExcel}
         >
-          <Upload className="w-4 h-4 mr-1.5" />
-          Subir Excel
+          {uploadingExcel ? (
+            <>
+              <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+              Subiendo...
+            </>
+          ) : (
+            <>
+              <Upload className="w-4 h-4 mr-1.5" />
+              Subir Excel
+            </>
+          )}
         </Button>
         <input
           ref={fileUploadRef}
@@ -402,8 +413,11 @@ export function EquiposView() {
                 body: formData,
               })
               const json = await res.json()
-              if (!res.ok) throw new Error(json.error)
-              toast.success(`Equipos cargados: ${json.rowsUpdated} actualizados, ${json.rowsCreated} nuevos`)
+              if (!res.ok) throw new Error(json.error || json.detail || `Error ${res.status}`)
+              toast.success(
+                `Excel procesado: ${json.rowsUpdated || 0} actualizados, ${json.rowsTotal || 0} filas total`,
+                { description: `${json.columnsDetected?.length || 0} columnas reconocidas` }
+              )
               refetch()
             } catch (err) {
               toast.error('Error al subir Excel', { description: (err as Error).message })
