@@ -476,33 +476,46 @@ export async function POST(request: NextRequest) {
     // Equipos que requieren recálculo de próxima revisión
     const equiposParaRecalc = new Set<string>()
 
+    // Tracking de key values para creación de nuevos registros
+    let clientesCreados = 0
+    let equiposCreados = 0
+    let contratosCreados = 0
+
     for (let rowIdx = 0; rowIdx < rows.length; rowIdx++) {
       const row = rows[rowIdx]
       try {
-        // Identificar la clave
+        // Identificar la clave + guardar el valor del key
         let equipoId: string | null = null
         let clienteId: string | null = null
         let contratoId: string | null = null
+        let productoKeyValue: string | null = null
+        let clienteKeyValue: string | null = null
+        let contratoKeyValue: string | null = null
+        let serieKeyValue: string | null = null
 
         for (const [header, rule] of headerToRule.entries()) {
           if (rule.field === '__KEY_PRODUCTO__') {
             const val = rule.parse(row[header]) as string | null
             if (val) {
+              productoKeyValue = val
               equipoId = equiposCache.get(val) || null
             }
           } else if (rule.field === '__KEY_SERIE__') {
             const val = rule.parse(row[header]) as string | null
-            if (val && !equipoId) {
-              equipoId = equiposBySerie.get(val) || null
+            if (val) {
+              serieKeyValue = val
+              if (!equipoId) equipoId = equiposBySerie.get(val) || null
             }
           } else if (rule.field === '__KEY_CLIENTE__') {
             const val = rule.parse(row[header]) as string | null
             if (val) {
+              clienteKeyValue = val
               clienteId = clientesCache.get(val) || null
             }
           } else if (rule.field === '__KEY_CONTRATO__') {
             const val = (rule.parse(row[header]) as string | null)?.toUpperCase()
             if (val) {
+              contratoKeyValue = val
               contratoId = contratosCache.get(val) || null
             }
           }
@@ -519,6 +532,138 @@ export async function POST(request: NextRequest) {
           if (c?.clienteId) clienteId = c.clienteId
         }
 
+        // ============================================================
+        // CREACIÓN DE NUEVOS REGISTROS (si no existen)
+        // ============================================================
+
+        // 1. Crear cliente si tenemos key pero no existe
+        if (!clienteId && clienteKeyValue) {
+          // Buscar el nombre del cliente en las columnas reconocidas
+          let clienteNombre = clienteKeyValue
+          for (const [header, rule] of headerToRule.entries()) {
+            if (rule.field === 'nombre' && rule.entity === 'cliente') {
+              const val = rule.parse(row[header]) as string | null
+              if (val) { clienteNombre = val; break }
+            }
+          }
+          const nuevoCliente = await db.cliente.create({
+            data: {
+              nombre: clienteNombre,
+              nif: `BC-${clienteKeyValue}`,
+              codigoExterno: clienteKeyValue,
+              estado: 'ACTIVO',
+            },
+          })
+          clienteId = nuevoCliente.id
+          clientesCache.set(clienteKeyValue, nuevoCliente.id)
+          clientesCreados++
+        }
+
+        // Si todavía no hay clienteId, crear uno fallback
+        if (!clienteId) {
+          // Buscar o crear cliente fallback "Sin cliente"
+          if (!clientesCache.has('FALLBACK')) {
+            const fb = await db.cliente.create({
+              data: { nombre: 'Sin cliente asignado', nif: 'BC-SIN-CLIENTE', estado: 'ACTIVO' },
+            })
+            clientesCache.set('FALLBACK', fb.id)
+          }
+          clienteId = clientesCache.get('FALLBACK')!
+        }
+
+        // 2. Crear equipo si tenemos key pero no existe
+        if (!equipoId && productoKeyValue) {
+          // Recoger campos del Excel para el nuevo equipo
+          let modeloVal = productoKeyValue
+          let serieVal = serieKeyValue || productoKeyValue
+          let marcaVal = '—'
+          let horasVal = 0
+          let esPropia = false
+          let ubicacionVal: string | null = null
+          let ultimaRevVal: Date | null = null
+          let proximaRevFechaVal: Date | null = null
+          let contratoActivoIdVal: string | null = null
+
+          for (const [header, rule] of headerToRule.entries()) {
+            if (rule.field.startsWith('__KEY_')) continue
+            const val = rule.parse(row[header])
+            if (val === null || val === undefined || val === '') continue
+            if (rule.entity === 'equipo') {
+              if (rule.field === 'modelo') modeloVal = String(val)
+              else if (rule.field === 'numeroSerie') serieVal = String(val)
+              else if (rule.field === 'marca') marcaVal = String(val)
+              else if (rule.field === 'horasUso') horasVal = Number(val) || 0
+              else if (rule.field === 'esMaquinaPropia') esPropia = Boolean(val)
+              else if (rule.field === 'ubicacion') ubicacionVal = String(val)
+              else if (rule.field === 'ultimaRevision') ultimaRevVal = val as Date
+              else if (rule.field === 'proximaRevisionFecha') proximaRevFechaVal = val as Date
+              else if (rule.field === 'contratoActivoId') contratoActivoIdVal = String(val)
+            }
+          }
+
+          // Generar numeroSerie único si colisiona
+          let serieFinal = serieVal
+          if (equiposBySerie.has(serieFinal)) {
+            serieFinal = serieFinal + '-' + Date.now().toString(36)
+          }
+
+          const nuevoEquipo = await db.equipo.create({
+            data: {
+              codigo: productoKeyValue,
+              tipo: 'DESCONOCIDO',
+              marca: marcaVal,
+              modelo: modeloVal,
+              numeroSerie: serieFinal,
+              horasUso: horasVal,
+              clienteId,
+              codigoProductoBC: productoKeyValue,
+              contratoActivoId: contratoActivoIdVal,
+              esMaquinaPropia: esPropia,
+              ubicacion: ubicacionVal,
+              ultimaRevision: ultimaRevVal,
+              proximaRevisionFecha: proximaRevFechaVal,
+              estado: 'OPERATIVO',
+              tipoRevision: esPropia ? 'POR_HORAS' : 'POR_CONTRATO',
+            },
+          })
+          equipoId = nuevoEquipo.id
+          equiposCache.set(productoKeyValue, nuevoEquipo.id)
+          equiposBySerie.set(serieFinal, nuevoEquipo.id)
+          allEquipos.push({
+            id: nuevoEquipo.id,
+            codigoProductoBC: productoKeyValue,
+            numeroSerie: serieFinal,
+            tipoRevision: esPropia ? 'POR_HORAS' : 'POR_CONTRATO',
+            tipoRevisionManual: false,
+            ultimaRevision: ultimaRevVal,
+            horasUso: horasVal,
+            clienteId,
+          })
+          equiposCreados++
+          equiposParaRecalc.add(nuevoEquipo.id)
+        }
+
+        // 3. Crear contrato si tenemos key pero no existe
+        if (!contratoId && contratoKeyValue) {
+          const nuevoContrato = await db.contrato.create({
+            data: {
+              numero: contratoKeyValue,
+              clienteId,
+              fechaInicio: new Date(),
+              fechaFin: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+              tipoMantenimiento: 'MIXTO',
+              periodicidadMeses: 12,
+              precioAnual: 0,
+              estado: 'ACTIVO',
+            },
+          })
+          contratoId = nuevoContrato.id
+          contratosCache.set(contratoKeyValue, nuevoContrato.id)
+          allContratos.push({ id: nuevoContrato.id, numero: contratoKeyValue, clienteId })
+          contratosCreados++
+        }
+
+        // Si después de todo no hay ningún ID, saltar
         if (!equipoId && !clienteId && !contratoId) {
           result.rowsSkipped++
           continue
@@ -603,8 +748,10 @@ export async function POST(request: NextRequest) {
           updatedSomething = true
         }
 
-        if (updatedSomething) {
-          result.rowsUpdated++
+        if (updatedSomething || equiposCreados > 0 || clientesCreados > 0 || contratosCreados > 0) {
+          // Si se creó un equipo nuevo o se actualizó algo, contar como procesado
+          if (updatedSomething) result.rowsUpdated++
+          else result.rowsSkipped++ // se crearon registros pero no hubo updates adicionales
         } else {
           result.rowsSkipped++
         }
@@ -737,8 +884,12 @@ export async function POST(request: NextRequest) {
       duration: Date.now() - startTime,
       columnsDetected: detectedColumns,
       ...result,
+      rowsCreated: equiposCreados + clientesCreados + contratosCreados,
+      equiposCreados,
+      clientesCreados,
+      contratosCreados,
       revisionesRecalculadas,
-      status: result.rowsFailed === 0 ? 'OK' : result.rowsUpdated > 0 ? 'PARCIAL' : 'ERROR',
+      status: result.rowsFailed === 0 ? 'OK' : (result.rowsUpdated > 0 || equiposCreados > 0) ? 'PARCIAL' : 'ERROR',
     })
   } catch (error) {
     console.error('POST /api/sync/excel-flexible error:', error)
