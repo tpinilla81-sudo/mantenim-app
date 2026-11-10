@@ -137,13 +137,8 @@ const EMPTY_FORM: EquipoFormData = {
 }
 
 export function EquiposView() {
-  const [search, setSearch] = useState('')
-  const [tipoFilter, setTipoFilter] = useState('TODOS')
-  const [estadoFilter, setEstadoFilter] = useState('TODOS')
-  const [clienteFilter, setClienteFilter] = useState('TODOS')
-  const [tipoRevisionFilter, setTipoRevisionFilter] = useState('TODOS')
-  const [page, setPage] = useState(0)
-  const pageSize = 100
+  // Filtros por columna (tipo Excel autofilter)
+  const [colFilters, setColFilters] = useState<Record<string, string>>({})
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<Equipo | null>(null)
   const [form, setForm] = useState<EquipoFormData>(EMPTY_FORM)
@@ -158,38 +153,48 @@ export function EquiposView() {
   )
   const clientesList = clientesResp?.data || []
 
-  const url = useMemo(() => {
-    const params = new URLSearchParams()
-    if (search) params.set('q', search)
-    if (tipoFilter !== 'TODOS') params.set('tipo', tipoFilter)
-    if (estadoFilter !== 'TODOS') params.set('estado', estadoFilter)
-    if (clienteFilter !== 'TODOS') params.set('clienteId', clienteFilter)
-    if (tipoRevisionFilter !== 'TODOS') params.set('tipoRevision', tipoRevisionFilter)
-    params.set('limit', String(pageSize))
-    params.set('offset', String(page * pageSize))
-    return `/api/equipos?${params.toString()}`
-  }, [search, tipoFilter, estadoFilter, clienteFilter, tipoRevisionFilter, page])
-
+  // Cargar TODOS los equipos (sin paginación, con scroll)
+  const url = '/api/equipos?limit=2000'
   const { data: resp, loading, error, refetch } = useFetch<{
     data: Equipo[]
     total: number
-    limit: number
-    offset: number
   }>(url)
 
-  const data = resp?.data || []
-  const total = resp?.total || 0
-  const totalPages = Math.max(1, Math.ceil(total / pageSize))
-  const canPrev = page > 0
-  const canNext = page + 1 < totalPages
+  // Filtrado client-side por columna (como Excel autofilter)
+  const allData = resp?.data || []
+  const data = useMemo(() => {
+    return allData.filter((eq) => {
+      for (const [col, val] of Object.entries(colFilters)) {
+        if (!val) continue
+        const cellVal = String(
+          col === 'codigo' ? eq.codigo :
+          col === 'modelo' ? eq.modelo :
+          col === 'numeroSerie' ? eq.numeroSerie :
+          col === 'marcaModelo' ? `${eq.marca} ${eq.modelo}` :
+          col === 'esPropio' ? (eq.esMaquinaPropia ? 'Sí' : 'No') :
+          col === 'cliente' ? (eq.cliente?.nombre || '') :
+          col === 'ubicacion' ? (eq.ubicacion || '') :
+          col === 'horasUso' ? String(eq.horasUso) :
+          col === 'proximaRevision' ? (eq.proximaRevisionFecha || '') :
+          col === 'contrato' ? (eq.contratoActivoId || '') :
+          col === 'estado' ? eq.estado :
+          ''
+        ).toLowerCase()
+        if (!cellVal.includes(val.toLowerCase())) return false
+      }
+      return true
+    })
+  }, [allData, colFilters])
 
-  const handleSearchChange = (v: string) => {
-    setSearch(v)
-    setPage(0)
-  }
-  const handleTipoRevisionFilterChange = (v: string) => {
-    setTipoRevisionFilter(v)
-    setPage(0)
+  const total = resp?.total || 0
+
+  const updateFilter = (col: string, val: string) => {
+    setColFilters((prev) => {
+      const next = { ...prev }
+      if (val) next[col] = val
+      else delete next[col]
+      return next
+    })
   }
 
   // Siguiente código automático
