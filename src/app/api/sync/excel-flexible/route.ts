@@ -26,19 +26,19 @@ const COLUMN_RULES: ColumnRule[] = [
   {
     field: '__KEY_PRODUCTO__',
     entity: 'equipo',
-    headers: ['Nº PROD. SERVICIO', 'NO. PROD. SERVICIO', 'Nº PRODUCTO', 'NO. PRODUCTO', 'Nº PRODUCTO SERVICIO', 'PRODUCTO', 'Nº PEDIDO SERVICIO', 'NO. PEDIDO SERVICIO', 'PEDIDO SERVICIO'],
+    headers: ['Nº PROD. SERVICIO', 'NO. PROD. SERVICIO', 'Nº PRODUCTO', 'NO. PRODUCTO', 'Nº PRODUCTO SERVICIO', 'PRODUCTO', 'Nº PEDIDO SERVICIO', 'NO. PEDIDO SERVICIO', 'PEDIDO SERVICIO', 'Nº'],
     parse: (v) => String(v || '').trim(),
   },
   {
     field: '__KEY_CLIENTE__',
     entity: 'cliente',
-    headers: ['Nº CLIENTE', 'NO. CLIENTE', 'NUM CLIENTE', 'Nº FACTURA-A Nº CLIENTE', 'FACTURA-A Nº CLIENTE', 'CLIENTE', 'Nº CLIENTE BC', 'CODIGO CLIENTE'],
+    headers: ['Nº CLIENTE', 'NO. CLIENTE', 'NUM CLIENTE', 'Nº FACTURA-A Nº CLIENTE', 'FACTURA-A Nº CLIENTE', 'CLIENTE', 'Nº CLIENTE BC', 'CODIGO CLIENTE', 'Nº CLIENTE PROPIETARIO'],
     parse: (v) => String(v || '').trim(),
   },
   {
     field: '__KEY_CONTRATO__',
     entity: 'contrato',
-    headers: ['Nº CONTRATO', 'NO. CONTRATO', 'NUM CONTRATO', 'CONTRATO'],
+    headers: ['Nº CONTRATO', 'NO. CONTRATO', 'NUM CONTRATO', 'CONTRATO', 'Nº CONTRATO SERVICIO MANTENIMIENTO EN VIGOR'],
     parse: (v) => String(v || '').trim(),
   },
   {
@@ -71,6 +71,24 @@ const COLUMN_RULES: ColumnRule[] = [
     field: 'modelo',
     entity: 'equipo',
     headers: ['MODELO', 'DESCRIPCION LINEA CONTRATO', 'DESCRIPCION LINEA', 'DESC. LINEA', 'DESCRIPCION'],
+    parse: (v) => String(v || '').trim(),
+  },
+  {
+    field: 'proximaRevisionFecha',
+    entity: 'equipo',
+    headers: ['SIGUIENTE FECHA MANTENIMIENTO', 'PROXIMA REVISION', 'PROXIMA FECHA REVISION', 'FECHA PROXIMA REVISION'],
+    parse: parseDate,
+  },
+  {
+    field: 'ubicacion',
+    entity: 'equipo',
+    headers: ['UBICACION', 'COD. DIRECCION ENVIO CLIENTE UBICACION', 'CODIGO DIRECCION ENVIO CLIENTE UBICACION', 'DIRECCION ENVIO', 'NOMBRE CLIENTE UBICACION'],
+    parse: (v) => String(v || '').trim(),
+  },
+  {
+    field: 'contratoActivoId',
+    entity: 'equipo',
+    headers: ['Nº CONTRATO INTERNO MANTENIMIENTO EN VIGOR', 'CONTRATO INTERNO'],
     parse: (v) => String(v || '').trim(),
   },
   {
@@ -107,7 +125,7 @@ const COLUMN_RULES: ColumnRule[] = [
   {
     field: 'nombre',
     entity: 'cliente',
-    headers: ['FACT. A-NOMBRE', 'FACT A-NOMBRE', 'NOMBRE CLIENTE', 'NOMBRE', 'RAZON SOCIAL'],
+    headers: ['FACT. A-NOMBRE', 'FACT A-NOMBRE', 'NOMBRE CLIENTE', 'NOMBRE', 'RAZON SOCIAL', 'NOMBRE CLIENTE PROPIETARIO'],
     parse: (v) => String(v || '').trim(),
   },
   {
@@ -167,7 +185,7 @@ const COLUMN_RULES: ColumnRule[] = [
   {
     field: 'zona',
     entity: 'cliente',
-    headers: ['ZONA', 'DELEGACION', 'CODIGO DELEGACION', 'SUCURSAL', 'SEDE', 'SHIP-TO CODE', 'CODIGO ENVIO', 'COD. ENVIO'],
+    headers: ['ZONA', 'DELEGACION', 'CODIGO DELEGACION', 'SUCURSAL', 'SEDE', 'SHIP-TO CODE', 'CODIGO ENVIO', 'COD. ENVIO', 'Nº SUCURSAL'],
     parse: (v) => String(v || '').trim(),
   },
 

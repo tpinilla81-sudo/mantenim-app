@@ -2,108 +2,101 @@ import { NextResponse } from 'next/server'
 import * as XLSX from 'xlsx'
 
 // GET /api/equipos/template — Descarga una plantilla Excel para cargar equipos
+// Los encabezados coinciden con la exportación de BC "Productos de servicio"
 export async function GET() {
   try {
-    // Crear el workbook
     const wb = XLSX.utils.book_new()
 
     // ============================================================
-    // Hoja 1: EQUIPOS (plantilla con columnas + 1 fila de ejemplo)
+    // Hoja 1: EQUIPOS — encabezados exactos de BC
     // ============================================================
     const headers = [
-      'Nº prod. servicio',
+      'Nº',
       'Descripción',
+      'Siguiente Fecha Mantenimiento',
       'Nº Serie',
+      'Modelo',
+      'Código de Servicio',
+      'Es propio',
+      'Nº cliente Propietario',
+      'Nombre Cliente Propietario',
+      'Nombre Cliente Ubicación',
+      'Nº cliente ubicación',
+      'Cód. dirección envío cliente ubicación',
       'Nº de horas',
-      'Nº Contrato',
-      'Estado contrato',
-      'Cliente',
-      'Nombre',
-      'Tipo pedido servicio',
-      'Fecha última revisión',
-      'Ship-To Code',
-      'Es máquina propia',
-      'COD.PREVISIONES CONTRATUALES',
-      'Nº DE HORAS PREVISTA REVISION',
-      'Nº DE HORAS TRABAJO ANUALES',
+      'Nº Sucursal',
+      'Nº Contrato Servicio Alquiler en Vigor',
+      'Nº Contrato Servicio Mantenimiento en Vigor',
+      'Nº Contrato Interno Mantenimiento en Vigor',
     ]
 
-    // Fila de ejemplo (para que el usuario vea cómo rellenar)
+    // Fila de ejemplo
     const ejemplo = [
-      '001234',                          // Nº prod. servicio
-      'H25 D 392',                       // Descripción (modelo)
-      'H2X392T01825',                    // Nº Serie
-      4820,                              // Nº de horas
-      'CM10/000013',                     // Nº Contrato
-      'Firmado',                         // Estado contrato
-      '430000126',                       // Cliente (Nº cliente)
-      'CUPESA MAT.CONSTRUCCION',         // Nombre
-      'Preventivo',                      // Tipo pedido servicio
-      '2025-03-15',                      // Fecha última revisión (YYYY-MM-DD)
-      'A10',                             // Ship-To Code (zona/delegación)
-      'No',                              // Es máquina propia (Sí/No)
-      4,                                 // COD.PREVISIONES CONTRATUALES (solo máquinas cliente)
-      '',                                // Nº DE HORAS PREVISTA REVISION (solo máquinas propias: 1000)
-      '',                                // Nº DE HORAS TRABAJO ANUALES (solo máquinas propias)
+      '001234',                              // Nº
+      'H25 D 392',                           // Descripción
+      '2026-03-15',                          // Siguiente Fecha Mantenimiento (YYYY-MM-DD)
+      'H2X392T01825',                        // Nº Serie
+      'H25',                                 // Modelo
+      'SC-001',                              // Código de Servicio
+      'No',                                  // Es propio (Sí/No)
+      '430000126',                           // Nº cliente Propietario
+      'CUPESA MAT.CONSTRUCCION',             // Nombre Cliente Propietario
+      'CUPESA MAT.CONSTRUCCION',             // Nombre Cliente Ubicación
+      '430000126',                           // Nº cliente ubicación
+      'A10',                                 // Cód. dirección envío cliente ubicación
+      4820,                                  // Nº de horas
+      'S01',                                 // Nº Sucursal
+      '',                                    // Nº Contrato Servicio Alquiler en Vigor
+      'CM10/000013',                         // Nº Contrato Servicio Mantenimiento en Vigor
+      'CMI10/000013',                        // Nº Contrato Interno Mantenimiento en Vigor
     ]
 
-    // Fila vacía para que el usuario empiece a rellenar
     const vacia = headers.map(() => '')
-
     const data = [headers, ejemplo, vacia]
     const ws = XLSX.utils.aoa_to_sheet(data)
-
-    // Ajustar ancho de columnas
     ws['!cols'] = headers.map((h) => ({ wch: Math.max(h.length + 2, 15) }))
-
     XLSX.utils.book_append_sheet(wb, ws, 'Equipos')
 
     // ============================================================
     // Hoja 2: INSTRUCCIONES
     // ============================================================
-    const instrucciones = [
-      ['INSTRUCCIONES PARA RELLENAR LA PLANTILLA DE EQUIPOS'],
+    const instr = [
+      ['INSTRUCCIONES PARA RELLENAR LA PLANTILLA'],
       [''],
       ['Cada fila = un equipo/máquina.'],
       [''],
-      ['COLUMNAS:', '', ''],
-      ['Nº prod. servicio', '*', 'Código único del equipo. Obligatorio.'],
-      ['Descripción', '', 'Modelo/tipo de la máquina (ej: H25 D 392, E16 PH 386)'],
-      ['Nº Serie', '', 'Número de serie físico del equipo'],
-      ['Nº de horas', '', 'Horas actuales del contador'],
-      ['Nº Contrato', '', 'Número de contrato activo (ej: CM10/000013)'],
-      ['Estado contrato', '', 'Firmado, Caducado, Cancelado, etc.'],
-      ['Cliente', '', 'Nº de cliente en BC (ej: 430000126)'],
-      ['Nombre', '', 'Nombre del cliente'],
-      ['Tipo pedido servicio', '', 'Preventivo, Correctivo, Reparación, etc.'],
-      ['Fecha última revisión', '', 'Formato: YYYY-MM-DD (ej: 2025-03-15)'],
-      ['Ship-To Code', '', 'Código de delegación/zona (ej: A10, B100, S2)'],
+      ['COLUMNAS:'],
+      ['Nº', 'Código único del equipo. Obligatorio.'],
+      ['Descripción', 'Texto descriptivo del equipo'],
+      ['Siguiente Fecha Mantenimiento', 'Próxima fecha de revisión (YYYY-MM-DD). Si ya la sabes, ponla aquí. Si no, la app la calcula.'],
+      ['Nº Serie', 'Número de serie físico'],
+      ['Modelo', 'Modelo de la máquina'],
+      ['Código de Servicio', 'Código de servicio interno'],
+      ['Es propio', 'Sí = máquina propia (revisión por horas). No = máquina de cliente (revisión por contrato).'],
+      ['Nº cliente Propietario', 'Nº de cliente propietario en BC'],
+      ['Nombre Cliente Propietario', 'Nombre del cliente propietario'],
+      ['Nombre Cliente Ubicación', 'Nombre del cliente donde está ubicada la máquina'],
+      ['Nº cliente ubicación', 'Nº de cliente en la ubicación actual'],
+      ['Cód. dirección envío cliente ubicación', 'Código de envío/zona/delegación (ej: A10, B100, S2)'],
+      ['Nº de horas', 'Horas actuales del contador'],
+      ['Nº Sucursal', 'Nº de sucursal'],
+      ['Nº Contrato Servicio Alquiler en Vigor', 'Contrato de alquiler activo (si tiene)'],
+      ['Nº Contrato Servicio Mantenimiento en Vigor', 'Contrato de mantenimiento activo'],
+      ['Nº Contrato Interno Mantenimiento en Vigor', 'Contrato interno de mantenimiento'],
       [''],
-      ['MÁQUINAS DE CLIENTE (con contrato M1/M2/FSCR/FSSR):', '', ''],
-      ['Es máquina propia', '', 'Poner "No"'],
-      ['COD.PREVISIONES CONTRATUALES', '*', 'Nº de revisiones contratadas/año (ej: 4 = trimestral)'],
-      ['Nº DE HORAS PREVISTA REVISION', '', 'Dejar vacío (no aplica)'],
-      ['Nº DE HORAS TRABAJO ANUALES', '', 'Dejar vacío (no aplica)'],
-      [''],
-      ['MÁQUINAS PROPIAS (sin contrato, revisión por horas):', '', ''],
-      ['Es máquina propia', '', 'Poner "Sí"'],
-      ['COD.PREVISIONES CONTRATUALES', '', 'Dejar vacío (no aplica)'],
-      ['Nº DE HORAS PREVISTA REVISION', '*', 'Umbral de horas para revisión (ej: 1000)'],
-      ['Nº DE HORAS TRABAJO ANUALES', '', 'Horas/año estimadas (ej: 1500). Para calcular próxima fecha.'],
-      [''],
-      ['* = Obligatorio'],
-      [''],
-      ['Una vez rellenada, súbelo desde la app: Equipos → Subir Excel'],
+      ['NOTAS:'],
+      ['- "Es propio" = Sí → la máquina es de tu empresa (revisión por horas cada 1000h)'],
+      ['- "Es propio" = No → la máquina es del cliente (revisión por contrato: M1/M2/FSCR/FSSR)'],
+      ['- Si rellenas "Siguiente Fecha Mantenimiento", la app la usa directamente'],
+      ['- Si la dejas vacía, la app la calcula según contrato o horas'],
     ]
 
-    const ws2 = XLSX.utils.aoa_to_sheet(instrucciones)
-    ws2['!cols'] = [{ wch: 35 }, { wch: 8 }, { wch: 60 }]
+    const ws2 = XLSX.utils.aoa_to_sheet(instr)
+    ws2['!cols'] = [{ wch: 45 }, { wch: 70 }]
     XLSX.utils.book_append_sheet(wb, ws2, 'Instrucciones')
 
-    // Generar el archivo Excel como buffer
     const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })
 
-    // Devolver como descarga
     return new NextResponse(buf, {
       headers: {
         'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -112,9 +105,6 @@ export async function GET() {
     })
   } catch (error) {
     console.error('GET /api/equipos/template error:', error)
-    return NextResponse.json(
-      { error: 'Error al generar la plantilla' },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: 'Error al generar plantilla' }, { status: 500 })
   }
 }
