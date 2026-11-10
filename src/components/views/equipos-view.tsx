@@ -457,14 +457,16 @@ export function EquiposView() {
               <Table>
                 <TableHeader>
                   <TableRow className="bg-muted/40 hover:bg-muted/40">
-                    <TableHead className="min-w-[180px]">Equipo</TableHead>
-                    <TableHead className="min-w-[160px]">Marca / Modelo</TableHead>
-                    <TableHead className="min-w-[140px]">Nº serie</TableHead>
-                    <TableHead className="min-w-[180px]">Cliente</TableHead>
-                    <TableHead className="min-w-[160px]">Ubicación</TableHead>
-                    <TableHead className="text-center min-w-[100px]">Horas</TableHead>
-                    <TableHead className="min-w-[150px]">Tipo revisión</TableHead>
-                    <TableHead className="min-w-[120px]">Últ. revisión</TableHead>
+                    <TableHead className="min-w-[100px]">Nº</TableHead>
+                    <TableHead className="min-w-[120px]">Descripción</TableHead>
+                    <TableHead className="min-w-[120px]">Nº Serie</TableHead>
+                    <TableHead className="min-w-[140px]">Modelo</TableHead>
+                    <TableHead className="min-w-[80px] text-center">Es propio</TableHead>
+                    <TableHead className="min-w-[160px]">Cliente</TableHead>
+                    <TableHead className="min-w-[120px]">Ubicación</TableHead>
+                    <TableHead className="text-center min-w-[80px]">Horas</TableHead>
+                    <TableHead className="min-w-[110px]">Próx. revisión</TableHead>
+                    <TableHead className="min-w-[120px]">Contrato</TableHead>
                     <TableHead className="text-center">Estado</TableHead>
                     <TableHead className="text-right pr-6">Acciones</TableHead>
                   </TableRow>
@@ -473,69 +475,54 @@ export function EquiposView() {
                   {data.map((eq) => (
                     <TableRow key={eq.id} className="hover:bg-muted/30">
                       <TableCell>
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-md bg-accent text-accent-foreground flex items-center justify-center text-base shrink-0">
-                            {EQUIPO_TIPO_ICONS[eq.tipo]}
-                          </div>
-                          <div className="min-w-0">
-                            <p className="text-[13px] font-mono font-medium">{eq.codigo}</p>
-                            <p className="text-[11px] text-muted-foreground">
-                              {EQUIPO_TIPOS[eq.tipo]}
-                              {eq.anioFabricacion ? ` · ${eq.anioFabricacion}` : ''}
-                            </p>
-                          </div>
-                        </div>
+                        <p className="text-[12px] font-mono font-medium">{eq.codigo}</p>
                       </TableCell>
-                      <TableCell>
-                        <div>
-                          <p className="text-[12px] font-medium">{eq.marca}</p>
-                          <p className="text-[11px] text-muted-foreground">{eq.modelo}</p>
-                        </div>
+                      <TableCell className="text-[12px] truncate max-w-[120px]">
+                        {eq.modelo || '—'}
                       </TableCell>
-                      <TableCell className="text-[12px] font-mono text-muted-foreground">
+                      <TableCell className="text-[11px] font-mono text-muted-foreground">
                         {eq.numeroSerie}
                       </TableCell>
-                      <TableCell className="text-[12px] truncate max-w-[180px]">
-                        {eq.cliente.nombre}
+                      <TableCell className="text-[12px]">
+                        {eq.marca !== '—' ? `${eq.marca} ${eq.modelo}` : eq.modelo || '—'}
                       </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1 text-[12px] text-muted-foreground">
-                          <MapPin className="w-3 h-3 shrink-0" />
-                          <span className="truncate">{eq.ubicacion || '—'}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-center tabular-nums">
-                        <div className="inline-flex items-center gap-1 text-[12px]">
-                          <Clock className="w-3 h-3 text-muted-foreground" />
-                          {eq.horasUso.toLocaleString('es-ES')}
-                        </div>
-                        {eq.proximaRevisionHoras != null && (
-                          <p className="text-[10px] text-muted-foreground tabular-nums">
-                            → {eq.proximaRevisionHoras.toLocaleString('es-ES')} h
-                          </p>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {eq.tipoRevision === 'POR_CONTRATO' ? (
-                          <EstadoBadge estado="PROGRAMADA" label="Por contrato" />
+                      <TableCell className="text-center">
+                        {eq.esMaquinaPropia ? (
+                          <span className="text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">Sí</span>
                         ) : (
-                          <EstadoBadge estado="EN_PROCESO" label="Por horas" />
+                          <span className="text-[11px] text-muted-foreground">No</span>
                         )}
-                        {eq.proximaRevisionFecha && (
-                          <p className="text-[11px] text-muted-foreground tabular-nums mt-0.5">
-                            {formatFecha(eq.proximaRevisionFecha)}
+                      </TableCell>
+                      <TableCell className="text-[12px] truncate max-w-[160px]">
+                        {eq.cliente?.nombre || '—'}
+                      </TableCell>
+                      <TableCell className="text-[12px] text-muted-foreground truncate max-w-[120px]">
+                        {eq.ubicacion || '—'}
+                      </TableCell>
+                      <TableCell className="text-center text-[12px] tabular-nums">
+                        {eq.horasUso.toLocaleString('es-ES')}
+                        {eq.proximaRevisionHoras != null && (
+                          <p className="text-[10px] text-muted-foreground">→ {eq.proximaRevisionHoras.toLocaleString('es-ES')}h</p>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {eq.proximaRevisionFecha ? (
+                          <div>
+                            <p className="text-[11px] tabular-nums">{formatFecha(eq.proximaRevisionFecha)}</p>
                             {(() => {
                               const d = diasHasta(eq.proximaRevisionFecha)
-                              if (d === null) return ''
-                              if (d < 0) return ` · vencida ${-d}d`
-                              if (d === 0) return ' · hoy'
-                              return ` · en ${d}d`
+                              if (d === null) return null
+                              if (d < 0) return <p className="text-[10px] text-rose-700 font-medium">vencida {-d}d</p>
+                              if (d === 0) return <p className="text-[10px] text-amber-700 font-medium">hoy</p>
+                              return <p className="text-[10px] text-muted-foreground">en {d}d</p>
                             })()}
-                          </p>
+                          </div>
+                        ) : (
+                          <span className="text-[11px] text-muted-foreground">—</span>
                         )}
                       </TableCell>
-                      <TableCell className="text-[12px] tabular-nums">
-                        {formatFecha(eq.ultimaRevision)}
+                      <TableCell className="text-[11px] font-mono text-muted-foreground truncate max-w-[120px]">
+                        {eq.contratoActivoId || '—'}
                       </TableCell>
                       <TableCell className="text-center">
                         <EstadoBadge estado={eq.estado} label={EQUIPO_ESTADOS[eq.estado] || eq.estado} />
