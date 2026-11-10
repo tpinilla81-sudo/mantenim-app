@@ -57,13 +57,6 @@ import {
   isoToInputDate,
   diasHasta,
 } from '@/lib/constants'
-import {
-  ChevronLeft,
-  ChevronRight,
-  CalendarClock,
-  ToggleLeft,
-  ToggleRight,
-} from 'lucide-react'
 
 interface ClienteOption {
   id: string
