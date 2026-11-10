@@ -114,7 +114,7 @@ const COLUMN_RULES: ColumnRule[] = [
   {
     field: 'esMaquinaPropia',
     entity: 'equipo',
-    headers: ['ES MAQUINA PROPIA', 'ES MÁQUINA PROPIA', 'MAQUINA PROPIA', 'MÁQUINA PROPIA', 'PROPIA'],
+    headers: ['ES MAQUINA PROPIA', 'ES MÁQUINA PROPIA', 'MAQUINA PROPIA', 'MÁQUINA PROPIA', 'PROPIA', 'ES PROPIO'],
     parse: (v) => {
       const s = String(v || '').trim().toUpperCase()
       return s === 'SI' || s === 'SÍ' || s === 'TRUE' || s === '1' || s === 'YES'

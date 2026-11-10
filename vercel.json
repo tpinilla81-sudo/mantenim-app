@@ -3,8 +3,13 @@
   "buildCommand": "bun run build",
   "installCommand": "bun install",
   "functions": {
-    "src/app/api/**": {
-      "maxDuration": 60
+    "src/app/api/sync/**": {
+      "maxDuration": 60,
+      "memory": 1024
+    },
+    "src/app/api/equipos/**": {
+      "maxDuration": 30,
+      "memory": 512
     }
   }
 }
