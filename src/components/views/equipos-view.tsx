@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { useFetch, apiFetch } from '@/lib/use-fetch'
 import { toast } from 'sonner'
 import {
@@ -11,6 +11,12 @@ import {
   Forklift,
   Clock,
   MapPin,
+  FileSpreadsheet,
+  Upload,
+  ChevronLeft,
+  ChevronRight,
+  ToggleLeft,
+  ToggleRight,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -149,6 +155,8 @@ export function EquiposView() {
   const [form, setForm] = useState<EquipoFormData>(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<Equipo | null>(null)
+  const [uploadingExcel, setUploadingExcel] = useState(false)
+  const fileUploadRef = useRef<HTMLInputElement>(null)
   const [toggleTarget, setToggleTarget] = useState<Equipo | null>(null)
 
   const { data: clientesResp } = useFetch<{ data: ClienteOption[]; total: number }>(
@@ -369,6 +377,49 @@ export function EquiposView() {
           </Select>
         )}
         <div className="flex-1" />
+        <a href="/api/equipos/template" download>
+          <Button variant="outline" size="sm">
+            <FileSpreadsheet className="w-4 h-4 mr-1.5" />
+            Descargar plantilla
+          </Button>
+        </a>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => fileUploadRef.current?.click()}
+        >
+          <Upload className="w-4 h-4 mr-1.5" />
+          Subir Excel
+        </Button>
+        <input
+          ref={fileUploadRef}
+          type="file"
+          accept=".xlsx,.xls"
+          className="hidden"
+          onChange={async (e) => {
+            const file = e.target.files?.[0]
+            if (!file) return
+            setUploadingExcel(true)
+            try {
+              const formData = new FormData()
+              formData.append('file', file)
+              formData.append('dryRun', 'false')
+              const res = await fetch('/api/sync/excel-flexible', {
+                method: 'POST',
+                body: formData,
+              })
+              const json = await res.json()
+              if (!res.ok) throw new Error(json.error)
+              toast.success(`Equipos cargados: ${json.rowsUpdated} actualizados, ${json.rowsCreated} nuevos`)
+              refetch()
+            } catch (err) {
+              toast.error('Error al subir Excel', { description: (err as Error).message })
+            } finally {
+              setUploadingExcel(false)
+              if (fileUploadRef.current) fileUploadRef.current.value = ''
+            }
+          }}
+        />
         <Button onClick={openCreate} disabled={!clientesList?.length}>
           <Plus className="w-4 h-4 mr-1.5" />
           Nuevo equipo

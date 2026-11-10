@@ -92,6 +92,17 @@ const COLUMN_RULES: ColumnRule[] = [
     parse: (v) => String(v || '').trim(),
   },
 
+  // === EQUIPO: Es máquina propia (Sí/No → boolean) ===
+  {
+    field: 'esMaquinaPropia',
+    entity: 'equipo',
+    headers: ['ES MAQUINA PROPIA', 'ES MÁQUINA PROPIA', 'MAQUINA PROPIA', 'MÁQUINA PROPIA', 'PROPIA'],
+    parse: (v) => {
+      const s = String(v || '').trim().toUpperCase()
+      return s === 'SI' || s === 'SÍ' || s === 'TRUE' || s === '1' || s === 'YES'
+    },
+  },
+
   // === CLIENTE: campos actualizables ===
   {
     field: 'nombre',
