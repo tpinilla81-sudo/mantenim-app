@@ -669,7 +669,17 @@ export async function POST(request: NextRequest) {
           continue
         }
 
-        // Procesar actualizaciones por entidad
+        // ============================================================
+        // MODO SOLO-NUEVOS: si el equipo YA EXISTE, saltarlo entirely
+        // No sobreescribir datos manuales (horas, revisiones, notas, etc.)
+        // Solo incorporar equipos NUEVOS que no estén en la BD
+        // ============================================================
+        if (equipoId) {
+          result.rowsSkipped++
+          continue
+        }
+
+        // Procesar actualizaciones por entidad (solo para registros recién creados)
         const equipoUpdates: Record<string, unknown> = {}
         const clienteUpdates: Record<string, unknown> = {}
         const contratoUpdates: Record<string, unknown> = {}
