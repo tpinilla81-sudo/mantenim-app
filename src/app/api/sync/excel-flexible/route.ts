@@ -120,6 +120,55 @@ const COLUMN_RULES: ColumnRule[] = [
       return s === 'SI' || s === 'SÍ' || s === 'TRUE' || s === '1' || s === 'YES'
     },
   },
+  // === EQUIPO: Campos nuevos del Excel BC ===
+  {
+    field: 'codigoServicio',
+    entity: 'equipo',
+    headers: ['CODIGO DE SERVICIO', 'COD. SERVICIO'],
+    parse: (v) => String(v || '').trim(),
+  },
+  {
+    field: 'numClientePropietario',
+    entity: 'equipo',
+    headers: ['Nº CLIENTE PROPIETARIO', 'NO. CLIENTE PROPIETARIO'],
+    parse: (v) => String(v || '').trim(),
+  },
+  {
+    field: 'nombreClienteUbicacion',
+    entity: 'equipo',
+    headers: ['NOMBRE CLIENTE UBICACION', 'NOMBRE CLIENTE UBICACIÓN'],
+    parse: (v) => String(v || '').trim(),
+  },
+  {
+    field: 'numClienteUbicacion',
+    entity: 'equipo',
+    headers: ['Nº CLIENTE UBICACION', 'NO. CLIENTE UBICACIÓN', 'Nº CLIENTE UBICACIÓN'],
+    parse: (v) => String(v || '').trim(),
+  },
+  {
+    field: 'codDireccionEnvio',
+    entity: 'equipo',
+    headers: ['COD. DIRECCION ENVIO CLIENTE UBICACION', 'CÓD. DIRECCIÓN ENVÍO CLIENTE UBICACIÓN'],
+    parse: (v) => String(v || '').trim(),
+  },
+  {
+    field: 'numSucursal',
+    entity: 'equipo',
+    headers: ['Nº SUCURSAL', 'NO. SUCURSAL', 'NUMERO SUCURSAL'],
+    parse: (v) => String(v || '').trim(),
+  },
+  {
+    field: 'contratoAlquilerVigor',
+    entity: 'equipo',
+    headers: ['Nº CONTRATO SERVICIO ALQUILER EN VIGOR', 'CONTRATO ALQUILER'],
+    parse: (v) => String(v || '').trim(),
+  },
+  {
+    field: 'contratoMantenimVigor',
+    entity: 'equipo',
+    headers: ['Nº CONTRATO SERVICIO MANTENIMIENTO EN VIGOR', 'CONTRATO MANTENIMIENTO'],
+    parse: (v) => String(v || '').trim(),
+  },
 
   // === CLIENTE: campos actualizables ===
   {

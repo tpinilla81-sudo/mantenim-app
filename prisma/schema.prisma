@@ -82,12 +82,18 @@ model Equipo {
   revisionesContratadasAnual Int?
 
   // === DISTINCIÓN MÁQUINA CLIENTE vs PROPIA ===
-  // false = máquina del cliente (con contrato M1/M2/FSCR/FSSR)
-  // true = máquina propia de la empresa de mantenimiento (sin contrato, revisión por horas)
   esMaquinaPropia Boolean @default(false)
-  // Para máquinas PROPIAS: horas/año estimadas (para calcular próxima revisión con fecha real)
-  // Si null, usa fallback "hoy + 30 días" (sin tasa de uso)
   horasAnualesEstimadas Int?
+
+  // === Campos del Excel BC "Productos de servicio" ===
+  codigoServicio           String?  // Código de Servicio
+  numClientePropietario    String?  // Nº cliente Propietario
+  nombreClienteUbicacion   String?  // Nombre Cliente Ubicación
+  numClienteUbicacion      String?  // Nº cliente ubicación
+  codDireccionEnvio        String?  // Cód. dirección envío cliente ubicación
+  numSucursal              String?  // Nº Sucursal
+  contratoAlquilerVigor    String?  // Nº Contrato Servicio Alquiler en Vigor
+  contratoMantenimVigor    String?  // Nº Contrato Servicio Mantenimiento en Vigor
 
   esHistorico      Boolean  @default(false) // true si ya no aparece en BC (contrato caducado/equipo retirado)
 
