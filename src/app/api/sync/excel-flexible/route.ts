@@ -181,7 +181,7 @@ export async function POST(request: NextRequest) {
         ultimaRevision: null,
         proximaRevisionFecha: proxRev,
         contratoActivoId: contratoInterno,
-        codigoServicio,
+        codServicio,
         numClientePropietario: numClienteProp,
         nombreClienteUbicacion: nombreClienteUbic,
         numClienteUbicacion: numClienteUbic,
