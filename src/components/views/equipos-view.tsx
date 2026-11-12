@@ -321,60 +321,11 @@ export function EquiposView() {
     <div className="p-4 lg:p-8 space-y-5 max-w-[1400px]">
       {/* Toolbar */}
       <div className="flex flex-col lg:flex-row lg:items-center gap-3">
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            value={search}
-            onChange={(e) => handleSearchChange(e.target.value)}
-            placeholder="Buscar por código, marca, modelo, serie..."
-            className="pl-9"
-          />
-        </div>
-        <Select value={tipoFilter} onValueChange={setTipoFilter}>
-          <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Tipo" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="TODOS">Todos los tipos</SelectItem>
-            {Object.entries(EQUIPO_TIPOS).map(([k, v]) => (
-              <SelectItem key={k} value={k}>{v}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={estadoFilter} onValueChange={setEstadoFilter}>
-          <SelectTrigger className="w-[160px]">
-            <SelectValue placeholder="Estado" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="TODOS">Todos los estados</SelectItem>
-            {Object.entries(EQUIPO_ESTADOS).map(([k, v]) => (
-              <SelectItem key={k} value={k}>{v}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={tipoRevisionFilter} onValueChange={handleTipoRevisionFilterChange}>
-          <SelectTrigger className="w-[160px]">
-            <SelectValue placeholder="Tipo revisión" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="TODOS">Todas las revisiones</SelectItem>
-            <SelectItem value="POR_HORAS">Por horas</SelectItem>
-            <SelectItem value="POR_CONTRATO">Por contrato (M1/M2)</SelectItem>
-          </SelectContent>
-        </Select>
-        {clientesList && (
-          <Select value={clienteFilter} onValueChange={setClienteFilter}>
-            <SelectTrigger className="w-[200px]">
-              <SelectValue placeholder="Cliente" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="TODOS">Todos los clientes</SelectItem>
-              {clientesList.map((c) => (
-                <SelectItem key={c.id} value={c.id}>{c.nombre}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
+        <p className="text-[13px] text-muted-foreground">
+          <strong className="text-foreground tabular-nums">{data.length}</strong>
+          {data.length !== total ? ` de ${total}` : ''} equipos
+          {Object.keys(colFilters).length > 0 && ' (filtrados)'}
+        </p>
         <div className="flex-1" />
         <a href="/api/equipos/template" download>
           <Button variant="outline" size="sm">
@@ -458,7 +409,7 @@ export function EquiposView() {
               </p>
             </div>
           ) : (
-            <div className="overflow-x-auto scrollbar-thin">
+            <div className="overflow-auto scrollbar-thin" style={{ maxHeight: 'calc(100vh - 200px)' }}>
               <Table>
                 <TableHeader>
                   <TableRow className="bg-muted/40 hover:bg-muted/40">
@@ -576,58 +527,6 @@ export function EquiposView() {
           )}
         </CardContent>
       </Card>
-
-      {/* Paginación */}
-      {total > pageSize && (
-        <div className="flex items-center justify-between gap-2 text-[12px] text-muted-foreground">
-          <p>
-            Mostrando <strong className="text-foreground tabular-nums">{data.length}</strong> de{' '}
-            <strong className="text-foreground tabular-nums">{total.toLocaleString('es-ES')}</strong> equipos · Página{' '}
-            <strong className="text-foreground tabular-nums">{page + 1}</strong> de{' '}
-            <strong className="text-foreground tabular-nums">{totalPages}</strong>
-          </p>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPage(0)}
-              disabled={!canPrev}
-              className="h-8 px-2"
-            >
-              <ChevronLeft className="w-3 h-3 mr-1" />
-              Inicio
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPage((p) => Math.max(0, p - 1))}
-              disabled={!canPrev}
-              className="h-8 w-8 p-0"
-            >
-              <ChevronLeft className="w-3.5 h-3.5" />
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
-              disabled={!canNext}
-              className="h-8 w-8 p-0"
-            >
-              <ChevronRight className="w-3.5 h-3.5" />
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPage(totalPages - 1)}
-              disabled={!canNext}
-              className="h-8 px-2"
-            >
-              Final
-              <ChevronRight className="w-3 h-3 ml-1" />
-            </Button>
-          </div>
-        </div>
-      )}
 
       {/* Diálogo create/edit */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
