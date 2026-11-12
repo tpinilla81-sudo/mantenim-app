@@ -5,7 +5,6 @@ import { useFetch, apiFetch } from '@/lib/use-fetch'
 import { toast } from 'sonner'
 import {
   Plus,
-  Search,
   Pencil,
   Trash2,
   Forklift,
@@ -18,12 +17,12 @@ import {
   ToggleLeft,
   ToggleRight,
   Loader2,
+  Filter,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
 import {
-  Table,
   TableBody,
   TableCell,
   TableHead,
@@ -48,6 +47,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from '@/components/ui/popover'
+import { cn } from '@/lib/utils'
 import { EstadoBadge } from '@/components/shared/estado-badge'
 import { ConfirmDialog } from '@/components/shared/confirm-dialog'
 import {
@@ -136,9 +141,162 @@ const EMPTY_FORM: EquipoFormData = {
   umbralHorasActual: '',
 }
 
+// Devuelve el valor mostrable (string) de una columna para un equipo.
+// Se usa tanto para el filtrado como para listar valores únicos en el autofiltro.
+function getCellValue(eq: Equipo, col: string): string {
+  switch (col) {
+    case 'codigo': return eq.codigo || ''
+    case 'modelo': return eq.modelo || '—'
+    case 'numeroSerie': return eq.numeroSerie || ''
+    case 'marcaModelo': return `${eq.marca || ''} ${eq.modelo || ''}`.trim() || '—'
+    case 'esPropio': return eq.esMaquinaPropia ? 'Sí' : 'No'
+    case 'cliente': return eq.cliente?.nombre || '—'
+    case 'ubicacion': return eq.ubicacion || '—'
+    case 'horasUso': return eq.horasUso != null ? eq.horasUso.toLocaleString('es-ES') : '—'
+    case 'proximaRevision': return eq.proximaRevisionFecha ? formatFecha(eq.proximaRevisionFecha) : '—'
+    case 'contrato': return eq.contratoActivoId || '—'
+    case 'estado': return EQUIPO_ESTADOS[eq.estado] || eq.estado
+    default: return ''
+  }
+}
+
+// Cabecera con autofiltro tipo Excel: botón que abre un popover con checkbox
+// por cada valor único presente en la columna.
+function ColumnFilterHeader({
+  title,
+  options,
+  selected,
+  onChange,
+  align = 'left',
+}: {
+  title: string
+  options: string[]
+  selected: string[]
+  onChange: (vals: string[]) => void
+  align?: 'left' | 'center' | 'right'
+}) {
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
+
+  const filteredOptions = useMemo(() => {
+    const seen = new Set<string>()
+    const ordered: string[] = []
+    for (const o of options) {
+      if (!seen.has(o)) {
+        seen.add(o)
+        ordered.push(o)
+      }
+    }
+    ordered.sort((a, b) => a.localeCompare(b, 'es', { numeric: true, sensitivity: 'base' }))
+    if (!search.trim()) return ordered
+    const q = search.toLowerCase()
+    return ordered.filter((o) => o.toLowerCase().includes(q))
+  }, [options, search])
+
+  const isActive = selected.length > 0
+  const allSelected = isActive && selected.length === filteredOptions.length && !search
+
+  const toggleAll = () => {
+    if (allSelected) onChange([])
+    else onChange(filteredOptions)
+  }
+
+  const alignClass = align === 'center' ? 'text-center items-center' : align === 'right' ? 'text-right items-end' : 'text-left items-start'
+
+  return (
+    <div className={cn('flex flex-col gap-1 py-1', alignClass)}>
+      <span className="text-[12px] font-semibold text-foreground truncate">{title}</span>
+      <Popover
+        open={open}
+        onOpenChange={(o) => {
+          setOpen(o)
+          if (!o) setSearch('')
+        }}
+      >
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className={cn(
+              'h-7 px-2 text-[11px] inline-flex items-center justify-between gap-1 rounded border w-full',
+              isActive
+                ? 'border-primary bg-primary/5 text-primary'
+                : 'border-input bg-background text-muted-foreground hover:bg-muted/40'
+            )}
+          >
+            <span className="truncate">
+              {isActive ? `${selected.length} selec.` : 'Todos'}
+            </span>
+            <Filter className={cn('w-3 h-3 shrink-0', isActive ? 'text-primary' : 'text-muted-foreground')} />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-60 p-0" onOpenAutoFocus={(e) => e.preventDefault()}>
+          <div className="p-2 border-b">
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Buscar valor..."
+              className="h-7 text-[12px]"
+              autoFocus
+            />
+          </div>
+          <div className="flex items-center justify-between px-2 py-1.5 border-b text-[11px] bg-muted/30">
+            <button
+              type="button"
+              onClick={toggleAll}
+              className="text-primary hover:underline font-medium"
+            >
+              {allSelected ? 'Quitar todos' : 'Seleccionar todos'}
+            </button>
+            <button
+              type="button"
+              onClick={() => onChange([])}
+              className="text-muted-foreground hover:text-foreground hover:underline"
+            >
+              Limpiar
+            </button>
+          </div>
+          <div className="max-h-64 overflow-y-auto scrollbar-thin py-1">
+            {filteredOptions.length === 0 ? (
+              <div className="px-3 py-4 text-center text-[11px] text-muted-foreground">
+                Sin valores
+              </div>
+            ) : (
+              filteredOptions.map((opt) => {
+                const checked = selected.includes(opt)
+                return (
+                  <label
+                    key={opt}
+                    className="flex items-center gap-2 px-2 py-1 hover:bg-muted/40 cursor-pointer text-[12px]"
+                  >
+                    <Checkbox
+                      checked={checked}
+                      onCheckedChange={(v) => {
+                        if (v === true) onChange([...selected, opt])
+                        else onChange(selected.filter((s) => s !== opt))
+                      }}
+                      className="h-3.5 w-3.5"
+                    />
+                    <span className="truncate">{opt === '' ? '(vacío)' : opt}</span>
+                  </label>
+                )
+              })
+            )}
+          </div>
+          {isActive && (
+            <div className="px-2 py-1.5 border-t text-[10px] text-muted-foreground bg-muted/20">
+              {selected.length} de {options.length} valores
+            </div>
+          )}
+        </PopoverContent>
+      </Popover>
+    </div>
+  )
+}
+
 export function EquiposView() {
-  // Filtros por columna (tipo Excel autofilter)
-  const [colFilters, setColFilters] = useState<Record<string, string>>({})
+  // Filtros por columna (tipo Excel autofilter): cada columna guarda un array
+  // de valores seleccionados. Vacío = mostrar todos.
+  const [colFilters, setColFilters] = useState<Record<string, string[]>>({})
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<Equipo | null>(null)
   const [form, setForm] = useState<EquipoFormData>(EMPTY_FORM)
@@ -161,27 +319,43 @@ export function EquiposView() {
     total: number
   }>(url)
 
-  // Filtrado client-side por columna (como Excel autofilter)
+  // Filtrado client-side por columna (tipo Excel autofilter):
+  // cada columna guarda un array de valores seleccionados; se muestra
+  // la fila solo si el valor de la celda está en el array (OR dentro de la
+  // columna, AND entre columnas).
   const allData = resp?.data || []
+
+  // Lista de columnas filtrables y sus valores únicos (para los dropdowns).
+  const FILTER_COLS: Array<{ key: string; title: string; align?: 'left' | 'center' | 'right' }> = [
+    { key: 'codigo',          title: 'Nº' },
+    { key: 'modelo',          title: 'Descripción' },
+    { key: 'numeroSerie',     title: 'Nº Serie' },
+    { key: 'marcaModelo',     title: 'Modelo' },
+    { key: 'esPropio',        title: 'Es propio',   align: 'center' },
+    { key: 'cliente',         title: 'Cliente' },
+    { key: 'ubicacion',       title: 'Ubicación' },
+    { key: 'horasUso',        title: 'Horas',       align: 'center' },
+    { key: 'proximaRevision', title: 'Próx. rev.' },
+    { key: 'contrato',        title: 'Contrato' },
+    { key: 'estado',          title: 'Estado',      align: 'center' },
+  ]
+
+  const uniqueValues = useMemo(() => {
+    const map: Record<string, string[]> = {}
+    for (const c of FILTER_COLS) {
+      const set = new Set<string>()
+      for (const eq of allData) set.add(getCellValue(eq, c.key))
+      map[c.key] = Array.from(set)
+    }
+    return map
+  }, [allData])
+
   const data = useMemo(() => {
     return allData.filter((eq) => {
-      for (const [col, val] of Object.entries(colFilters)) {
-        if (!val) continue
-        const cellVal = String(
-          col === 'codigo' ? eq.codigo :
-          col === 'modelo' ? eq.modelo :
-          col === 'numeroSerie' ? eq.numeroSerie :
-          col === 'marcaModelo' ? `${eq.marca} ${eq.modelo}` :
-          col === 'esPropio' ? (eq.esMaquinaPropia ? 'Sí' : 'No') :
-          col === 'cliente' ? (eq.cliente?.nombre || '') :
-          col === 'ubicacion' ? (eq.ubicacion || '') :
-          col === 'horasUso' ? String(eq.horasUso) :
-          col === 'proximaRevision' ? (eq.proximaRevisionFecha || '') :
-          col === 'contrato' ? (eq.contratoActivoId || '') :
-          col === 'estado' ? eq.estado :
-          ''
-        ).toLowerCase()
-        if (!cellVal.includes(val.toLowerCase())) return false
+      for (const [col, selected] of Object.entries(colFilters)) {
+        if (!selected || selected.length === 0) continue
+        const cellVal = getCellValue(eq, col)
+        if (!selected.includes(cellVal)) return false
       }
       return true
     })
@@ -189,14 +363,18 @@ export function EquiposView() {
 
   const total = resp?.total || 0
 
-  const updateFilter = (col: string, val: string) => {
+  const updateFilter = (col: string, vals: string[]) => {
     setColFilters((prev) => {
       const next = { ...prev }
-      if (val) next[col] = val
+      if (vals && vals.length > 0) next[col] = vals
       else delete next[col]
       return next
     })
   }
+
+  const clearAllFilters = () => setColFilters({})
+
+  const activeFilterCount = Object.values(colFilters).filter((v) => v && v.length > 0).length
 
   // Siguiente código automático
   useEffect(() => {
@@ -338,8 +516,19 @@ export function EquiposView() {
         <p className="text-[13px] text-muted-foreground">
           <strong className="text-foreground tabular-nums">{data.length}</strong>
           {data.length !== total ? ` de ${total}` : ''} equipos
-          {Object.keys(colFilters).length > 0 && ' (filtrados)'}
+          {activeFilterCount > 0 && ' (filtrados)'}
         </p>
+        {activeFilterCount > 0 && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={clearAllFilters}
+            className="h-7 text-[12px] text-muted-foreground hover:text-foreground"
+          >
+            <Filter className="w-3.5 h-3.5 mr-1" />
+            Limpiar filtros ({activeFilterCount})
+          </Button>
+        )}
         <div className="flex-1" />
         <a href="/api/equipos/template" download>
           <Button variant="outline" size="sm">
@@ -434,117 +623,54 @@ export function EquiposView() {
               </p>
             </div>
           ) : (
-            <div className="overflow-auto scrollbar-thin relative" style={{ maxHeight: 'calc(100vh - 200px)' }}>
-              <Table>
+            <div
+              className="overflow-auto scrollbar-thin"
+              style={{ maxHeight: 'calc(100vh - 170px)' }}
+            >
+              <table className="w-full caption-bottom text-sm border-separate border-spacing-0">
                 <TableHeader>
-                  <TableRow className="bg-muted/60 hover:bg-muted/60 sticky top-0 z-10">
-                    <TableHead className="min-w-[90px]">
-                      Nº
-                      <Input
-                        value={colFilters.codigo || ''}
-                        onChange={(e) => updateFilter('codigo', e.target.value)}
-                        placeholder="Filtrar..."
-                        className="h-6 mt-1 text-[11px]"
-                      />
+                  <TableRow className="hover:bg-muted/60">
+                    {FILTER_COLS.map((c) => {
+                      const opts = uniqueValues[c.key] || []
+                      const sel = colFilters[c.key] || []
+                      const alignClass =
+                        c.align === 'center' ? 'text-center' :
+                        c.align === 'right' ? 'text-right' : 'text-left'
+                      const minW =
+                        c.key === 'codigo' ? 'min-w-[110px]' :
+                        c.key === 'modelo' ? 'min-w-[130px]' :
+                        c.key === 'numeroSerie' ? 'min-w-[130px]' :
+                        c.key === 'marcaModelo' ? 'min-w-[130px]' :
+                        c.key === 'esPropio' ? 'min-w-[110px]' :
+                        c.key === 'cliente' ? 'min-w-[160px]' :
+                        c.key === 'ubicacion' ? 'min-w-[130px]' :
+                        c.key === 'horasUso' ? 'min-w-[100px]' :
+                        c.key === 'proximaRevision' ? 'min-w-[120px]' :
+                        c.key === 'contrato' ? 'min-w-[120px]' :
+                        c.key === 'estado' ? 'min-w-[110px]' : 'min-w-[100px]'
+                      return (
+                        <TableHead
+                          key={c.key}
+                          className={cn(
+                            'sticky top-0 z-20 bg-muted/90 backdrop-blur-sm border-b border-border',
+                            alignClass,
+                            minW,
+                            'px-2 align-bottom',
+                          )}
+                        >
+                          <ColumnFilterHeader
+                            title={c.title}
+                            options={opts}
+                            selected={sel}
+                            onChange={(vals) => updateFilter(c.key, vals)}
+                            align={c.align}
+                          />
+                        </TableHead>
+                      )
+                    })}
+                    <TableHead className="sticky top-0 z-20 bg-muted/90 backdrop-blur-sm border-b border-border text-right pr-6 align-bottom min-w-[120px]">
+                      <span className="text-[12px] font-semibold text-foreground">Acciones</span>
                     </TableHead>
-                    <TableHead className="min-w-[110px]">
-                      Descripción
-                      <Input
-                        value={colFilters.modelo || ''}
-                        onChange={(e) => updateFilter('modelo', e.target.value)}
-                        placeholder="Filtrar..."
-                        className="h-6 mt-1 text-[11px]"
-                      />
-                    </TableHead>
-                    <TableHead className="min-w-[110px]">
-                      Nº Serie
-                      <Input
-                        value={colFilters.numeroSerie || ''}
-                        onChange={(e) => updateFilter('numeroSerie', e.target.value)}
-                        placeholder="Filtrar..."
-                        className="h-6 mt-1 text-[11px]"
-                      />
-                    </TableHead>
-                    <TableHead className="min-w-[110px]">
-                      Modelo
-                      <Input
-                        value={colFilters.marcaModelo || ''}
-                        onChange={(e) => updateFilter('marcaModelo', e.target.value)}
-                        placeholder="Filtrar..."
-                        className="h-6 mt-1 text-[11px]"
-                      />
-                    </TableHead>
-                    <TableHead className="min-w-[80px] text-center">
-                      Es propio
-                      <select
-                        value={colFilters.esPropio || ''}
-                        onChange={(e) => updateFilter('esPropio', e.target.value)}
-                        className="h-6 mt-1 text-[11px] w-full rounded border border-input bg-background px-1"
-                      >
-                        <option value="">Todos</option>
-                        <option value="Sí">Sí</option>
-                        <option value="No">No</option>
-                      </select>
-                    </TableHead>
-                    <TableHead className="min-w-[140px]">
-                      Cliente
-                      <Input
-                        value={colFilters.cliente || ''}
-                        onChange={(e) => updateFilter('cliente', e.target.value)}
-                        placeholder="Filtrar..."
-                        className="h-6 mt-1 text-[11px]"
-                      />
-                    </TableHead>
-                    <TableHead className="min-w-[100px]">
-                      Ubicación
-                      <Input
-                        value={colFilters.ubicacion || ''}
-                        onChange={(e) => updateFilter('ubicacion', e.target.value)}
-                        placeholder="Filtrar..."
-                        className="h-6 mt-1 text-[11px]"
-                      />
-                    </TableHead>
-                    <TableHead className="text-center min-w-[70px]">
-                      Horas
-                      <Input
-                        value={colFilters.horasUso || ''}
-                        onChange={(e) => updateFilter('horasUso', e.target.value)}
-                        placeholder="Filtrar..."
-                        className="h-6 mt-1 text-[11px]"
-                      />
-                    </TableHead>
-                    <TableHead className="min-w-[100px]">
-                      Próx. rev.
-                      <Input
-                        value={colFilters.proximaRevision || ''}
-                        onChange={(e) => updateFilter('proximaRevision', e.target.value)}
-                        placeholder="Filtrar..."
-                        className="h-6 mt-1 text-[11px]"
-                      />
-                    </TableHead>
-                    <TableHead className="min-w-[100px]">
-                      Contrato
-                      <Input
-                        value={colFilters.contrato || ''}
-                        onChange={(e) => updateFilter('contrato', e.target.value)}
-                        placeholder="Filtrar..."
-                        className="h-6 mt-1 text-[11px]"
-                      />
-                    </TableHead>
-                    <TableHead className="text-center min-w-[90px]">
-                      Estado
-                      <select
-                        value={colFilters.estado || ''}
-                        onChange={(e) => updateFilter('estado', e.target.value)}
-                        className="h-6 mt-1 text-[11px] w-full rounded border border-input bg-background px-1"
-                      >
-                        <option value="">Todos</option>
-                        <option value="OPERATIVO">Operativo</option>
-                        <option value="EN_MANTENIMIENTO">En mant.</option>
-                        <option value="FUERA_SERVICIO">Fuera serv.</option>
-                      </select>
-                    </TableHead>
-                    <TableHead className="text-right pr-6">Acciones</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -642,7 +768,7 @@ export function EquiposView() {
                     </TableRow>
                   ))}
                 </TableBody>
-              </Table>
+              </table>
             </div>
           )}
         </CardContent>
