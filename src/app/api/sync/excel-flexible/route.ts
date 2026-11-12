@@ -213,7 +213,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 5. Get or create fallback cliente
-    let fallbackId: string | null = null
+    let fallbackId: string
     const fb = await db.cliente.findFirst({ where: { nif: 'BC-SIN-CLIENTE' }, select: { id: true } })
     if (fb) {
       fallbackId = fb.id
@@ -222,29 +222,26 @@ export async function POST(request: NextRequest) {
       fallbackId = nuevo.id
     }
 
-    // 6. Assign clienteId to each equipo
+    // 6. Assign clienteId to each equipo + clean nulls
     for (const eq of newEquipos) {
-      const cod = eq.numClientePropietario as string | null
-      eq.clienteId = (cod && clienteMap.has(cod)) ? clienteMap.get(cod) : fallbackId
+      const cod = eq.numClientePropietario as string
+      const found = cod && clienteMap.has(cod) ? clienteMap.get(cod) : null
+      eq.clienteId = found || fallbackId
+      // Ensure no nulls in required fields
+      eq.clienteId = eq.clienteId as string
     }
 
     // 7. Create equipos in bulk
     let equiposCreados = 0
     const errores: string[] = []
     for (let i = 0; i < newEquipos.length; i += 500) {
+      const batch = newEquipos.slice(i, i + 500)
       try {
-        await db.equipo.createMany({ data: newEquipos.slice(i, i + 500), skipDuplicates: true })
-        equiposCreados += Math.min(500, newEquipos.length - i)
+        await db.equipo.createMany({ data: batch as any, skipDuplicates: true })
+        equiposCreados += batch.length
       } catch (e) {
         const msg = String(e).substring(0, 200)
         errores.push(`Lote ${i}: ${msg}`)
-        // Try one by one for this batch
-        for (const eq of newEquipos.slice(i, i + 500)) {
-          try {
-            await db.equipo.create({ data: eq as any })
-            equiposCreados++
-          } catch { /* skip */ }
-        }
       }
     }
 
