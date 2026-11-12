@@ -147,6 +147,7 @@ export function EquiposView() {
   const [uploadingExcel, setUploadingExcel] = useState(false)
   const fileUploadRef = useRef<HTMLInputElement>(null)
   const [toggleTarget, setToggleTarget] = useState<Equipo | null>(null)
+  const [deleteAllTarget, setDeleteAllTarget] = useState(false)
 
   const { data: clientesResp } = useFetch<{ data: ClienteOption[]; total: number }>(
     '/api/clientes?limit=500'
@@ -303,6 +304,19 @@ export function EquiposView() {
     }
   }
 
+  const handleDeleteAll = async () => {
+    setDeleteAllTarget(false)
+    try {
+      const res = await fetch('/api/equipos/all', { method: 'DELETE' })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error)
+      toast.success(`Listado borrado: ${json.deleted.equipos} equipos eliminados`)
+      refetch()
+    } catch (err) {
+      toast.error('Error al borrar', { description: (err as Error).message })
+    }
+  }
+
   const handleToggleRevision = async (eq: Equipo) => {
     try {
       const res = await fetch(`/api/equipos/${eq.id}/toggle-revision`, { method: 'POST' })
@@ -387,6 +401,17 @@ export function EquiposView() {
           <Plus className="w-4 h-4 mr-1.5" />
           Nuevo equipo
         </Button>
+        {data.length > 0 && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setDeleteAllTarget(true)}
+            className="text-rose-600 hover:text-rose-700 hover:bg-rose-50 border-rose-200"
+          >
+            <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+            Borrar listado
+          </Button>
+        )}
       </div>
 
       {/* Tabla */}
@@ -797,6 +822,16 @@ export function EquiposView() {
         destructive
         onConfirm={handleDelete}
         onCancel={() => setDeleteTarget(null)}
+      />
+
+      <ConfirmDialog
+        open={deleteAllTarget}
+        title="Borrar todo el listado"
+        description={`Se borrarán TODOS los ${data.length} equipos, sus revisiones y vínculos con contratos. Esta acción no se puede deshacer. ¿Estás seguro?`}
+        confirmText="Sí, borrar todo"
+        destructive
+        onConfirm={handleDeleteAll}
+        onCancel={() => setDeleteAllTarget(false)}
       />
     </div>
   )
