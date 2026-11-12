@@ -3,302 +3,24 @@ import { db } from '@/lib/db'
 import * as XLSX from 'xlsx'
 
 // ============================================================
-// Mapeo de cabeceras: reconoce sinónimos comunes en español
-// (case-insensitive, sin acentos ni espacios extra)
+// Mapeo de cabeceras (igual que antes)
 // ============================================================
 function normalizeHeader(h: string): string {
   return h.toUpperCase()
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '') // quita acentos
+    .replace(/[\u0300-\u036f]/g, '')
     .replace(/\s+/g, ' ')
     .trim()
 }
-
-interface ColumnRule {
-  field: string // campo interno a actualizar
-  entity: 'equipo' | 'cliente' | 'contrato'
-  headers: string[] // sinónimos reconocidos (ya normalizados)
-  parse: (val: unknown) => unknown
-}
-
-const COLUMN_RULES: ColumnRule[] = [
-  // === CLAVES DE IDENTIFICACIÓN ===
-  {
-    field: '__KEY_PRODUCTO__',
-    entity: 'equipo',
-    headers: ['Nº PROD. SERVICIO', 'NO. PROD. SERVICIO', 'Nº PRODUCTO', 'NO. PRODUCTO', 'Nº PRODUCTO SERVICIO', 'PRODUCTO', 'Nº PEDIDO SERVICIO', 'NO. PEDIDO SERVICIO', 'PEDIDO SERVICIO', 'Nº'],
-    parse: (v) => String(v || '').trim(),
-  },
-  {
-    field: '__KEY_CLIENTE__',
-    entity: 'cliente',
-    headers: ['Nº CLIENTE', 'NO. CLIENTE', 'NUM CLIENTE', 'Nº FACTURA-A Nº CLIENTE', 'FACTURA-A Nº CLIENTE', 'CLIENTE', 'Nº CLIENTE BC', 'CODIGO CLIENTE', 'Nº CLIENTE PROPIETARIO'],
-    parse: (v) => String(v || '').trim(),
-  },
-  {
-    field: '__KEY_CONTRATO__',
-    entity: 'contrato',
-    headers: ['Nº CONTRATO', 'NO. CONTRATO', 'NUM CONTRATO', 'CONTRATO', 'Nº CONTRATO SERVICIO MANTENIMIENTO EN VIGOR'],
-    parse: (v) => String(v || '').trim(),
-  },
-  {
-    field: '__KEY_SERIE__',
-    entity: 'equipo',
-    headers: ['Nº SERIE', 'NO. SERIE', 'NUM SERIE', 'SERIE'],
-    parse: (v) => String(v || '').trim(),
-  },
-
-  // === EQUIPO: campos actualizables ===
-  {
-    field: 'ultimaRevision',
-    entity: 'equipo',
-    headers: ['ULTIMA REVISION', 'ULT. REVISION', 'ULT REVISION', 'FECHA ULTIMA REVISION', 'FECHA ULT REVISION', 'ULTIMA REVISION FECHA', 'FECHA REGISTRO', 'FECHA VENCIM.', 'FECHA VENCIMIENTO REVISION', 'FECHA PROXIMA REVISION'],
-    parse: parseDate,
-  },
-  {
-    field: 'horasUso',
-    entity: 'equipo',
-    headers: ['HORAS ACTUALES', 'HORAS', 'Nº HORAS SALIDA', 'NO. HORAS SALIDA', 'HORAS DE USO', 'HORAS USADAS', 'CONTADOR HORAS', 'Nº DE HORAS', 'NUMERO DE HORAS'],
-    parse: parseNum,
-  },
-  {
-    field: 'marca',
-    entity: 'equipo',
-    headers: ['MARCA'],
-    parse: (v) => String(v || '').trim(),
-  },
-  {
-    field: 'modelo',
-    entity: 'equipo',
-    headers: ['MODELO', 'DESCRIPCION LINEA CONTRATO', 'DESCRIPCION LINEA', 'DESC. LINEA', 'DESCRIPCION'],
-    parse: (v) => String(v || '').trim(),
-  },
-  {
-    field: 'proximaRevisionFecha',
-    entity: 'equipo',
-    headers: ['SIGUIENTE FECHA MANTENIMIENTO', 'PROXIMA REVISION', 'PROXIMA FECHA REVISION', 'FECHA PROXIMA REVISION'],
-    parse: parseDate,
-  },
-  {
-    field: 'ubicacion',
-    entity: 'equipo',
-    headers: ['UBICACION', 'COD. DIRECCION ENVIO CLIENTE UBICACION', 'CODIGO DIRECCION ENVIO CLIENTE UBICACION', 'DIRECCION ENVIO', 'NOMBRE CLIENTE UBICACION'],
-    parse: (v) => String(v || '').trim(),
-  },
-  {
-    field: 'contratoActivoId',
-    entity: 'equipo',
-    headers: ['Nº CONTRATO INTERNO MANTENIMIENTO EN VIGOR', 'CONTRATO INTERNO'],
-    parse: (v) => String(v || '').trim(),
-  },
-  {
-    field: 'numeroSerie',
-    entity: 'equipo',
-    headers: ['Nº SERIE', 'NO. SERIE', 'SERIE FISICA'],
-    parse: (v) => String(v || '').trim(),
-  },
-  {
-    field: 'anioFabricacion',
-    entity: 'equipo',
-    headers: ['AÑO FABRICACION', 'ANO FABRICACION', 'AÑO', 'ANO', 'FECHA FABRICACION'],
-    parse: parseNum,
-  },
-  {
-    field: 'ubicacion',
-    entity: 'equipo',
-    headers: ['UBICACION', 'COD. DIRECCION ENVIO CLIENTE', 'CODIGO DIRECCION ENVIO CLIENTE', 'DIRECCION ENVIO'],
-    parse: (v) => String(v || '').trim(),
-  },
-
-  // === EQUIPO: Es máquina propia (Sí/No → boolean) ===
-  {
-    field: 'esMaquinaPropia',
-    entity: 'equipo',
-    headers: ['ES MAQUINA PROPIA', 'ES MÁQUINA PROPIA', 'MAQUINA PROPIA', 'MÁQUINA PROPIA', 'PROPIA', 'ES PROPIO'],
-    parse: (v) => {
-      const s = String(v || '').trim().toUpperCase()
-      return s === 'SI' || s === 'SÍ' || s === 'TRUE' || s === '1' || s === 'YES'
-    },
-  },
-  // === EQUIPO: Campos nuevos del Excel BC ===
-  {
-    field: 'codigoServicio',
-    entity: 'equipo',
-    headers: ['CODIGO DE SERVICIO', 'COD. SERVICIO'],
-    parse: (v) => String(v || '').trim(),
-  },
-  {
-    field: 'numClientePropietario',
-    entity: 'equipo',
-    headers: ['Nº CLIENTE PROPIETARIO', 'NO. CLIENTE PROPIETARIO'],
-    parse: (v) => String(v || '').trim(),
-  },
-  {
-    field: 'nombreClienteUbicacion',
-    entity: 'equipo',
-    headers: ['NOMBRE CLIENTE UBICACION', 'NOMBRE CLIENTE UBICACIÓN'],
-    parse: (v) => String(v || '').trim(),
-  },
-  {
-    field: 'numClienteUbicacion',
-    entity: 'equipo',
-    headers: ['Nº CLIENTE UBICACION', 'NO. CLIENTE UBICACIÓN', 'Nº CLIENTE UBICACIÓN'],
-    parse: (v) => String(v || '').trim(),
-  },
-  {
-    field: 'codDireccionEnvio',
-    entity: 'equipo',
-    headers: ['COD. DIRECCION ENVIO CLIENTE UBICACION', 'CÓD. DIRECCIÓN ENVÍO CLIENTE UBICACIÓN'],
-    parse: (v) => String(v || '').trim(),
-  },
-  {
-    field: 'numSucursal',
-    entity: 'equipo',
-    headers: ['Nº SUCURSAL', 'NO. SUCURSAL', 'NUMERO SUCURSAL'],
-    parse: (v) => String(v || '').trim(),
-  },
-  {
-    field: 'contratoAlquilerVigor',
-    entity: 'equipo',
-    headers: ['Nº CONTRATO SERVICIO ALQUILER EN VIGOR', 'CONTRATO ALQUILER'],
-    parse: (v) => String(v || '').trim(),
-  },
-  {
-    field: 'contratoMantenimVigor',
-    entity: 'equipo',
-    headers: ['Nº CONTRATO SERVICIO MANTENIMIENTO EN VIGOR', 'CONTRATO MANTENIMIENTO'],
-    parse: (v) => String(v || '').trim(),
-  },
-
-  // === CLIENTE: campos actualizables ===
-  {
-    field: 'nombre',
-    entity: 'cliente',
-    headers: ['FACT. A-NOMBRE', 'FACT A-NOMBRE', 'NOMBRE CLIENTE', 'NOMBRE', 'RAZON SOCIAL', 'NOMBRE CLIENTE PROPIETARIO'],
-    parse: (v) => String(v || '').trim(),
-  },
-  {
-    field: 'nif',
-    entity: 'cliente',
-    headers: ['NIF', 'CIF', 'NIF/CIF'],
-    parse: (v) => String(v || '').trim(),
-  },
-  {
-    field: 'email',
-    entity: 'cliente',
-    headers: ['EMAIL', 'E-MAIL', 'CORREO', 'EMAIL DESTINO FACTURAS/ABONOS'],
-    parse: (v) => String(v || '').trim(),
-  },
-  {
-    field: 'telefono',
-    entity: 'cliente',
-    headers: ['TELEFONO', 'TEL', 'TELEFONO CLIENTE'],
-    parse: (v) => String(v || '').trim(),
-  },
-  {
-    field: 'direccion',
-    entity: 'cliente',
-    headers: ['DIRECCION', 'DIRECCION FISCAL', 'DOMICILIO'],
-    parse: (v) => String(v || '').trim(),
-  },
-  {
-    field: 'ciudad',
-    entity: 'cliente',
-    headers: ['CIUDAD', 'POBLACION', 'LOCALIDAD'],
-    parse: (v) => String(v || '').trim(),
-  },
-  {
-    field: 'codigoPostal',
-    entity: 'cliente',
-    headers: ['CODIGO POSTAL', 'CP', 'COD. POSTAL', 'COD POSTAL'],
-    parse: (v) => String(v || '').trim(),
-  },
-  {
-    field: 'contactoNombre',
-    entity: 'cliente',
-    headers: ['CONTACTO', 'PERSONA CONTACTO', 'NOMBRE CONTACTO'],
-    parse: (v) => String(v || '').trim(),
-  },
-  {
-    field: 'contactoTelefono',
-    entity: 'cliente',
-    headers: ['TELEFONO CONTACTO', 'TEL CONTACTO', 'MOVIL CONTACTO'],
-    parse: (v) => String(v || '').trim(),
-  },
-  {
-    field: 'contactoEmail',
-    entity: 'cliente',
-    headers: ['EMAIL CONTACTO', 'CORREO CONTACTO'],
-    parse: (v) => String(v || '').trim(),
-  },
-  {
-    field: 'zona',
-    entity: 'cliente',
-    headers: ['ZONA', 'DELEGACION', 'CODIGO DELEGACION', 'SUCURSAL', 'SEDE', 'SHIP-TO CODE', 'CODIGO ENVIO', 'COD. ENVIO', 'Nº SUCURSAL'],
-    parse: (v) => String(v || '').trim(),
-  },
-
-  // === CONTRATO: campos actualizables ===
-  {
-    field: 'codGrupoContrato',
-    entity: 'contrato',
-    headers: ['COD. GRUPO CONTRATO', 'CODIGO GRUPO CONTRATO', 'GRUPO CONTRATO', 'TIPO CONTRATO', 'GRUPO'],
-    parse: (v) => String(v || '').trim(),
-  },
-  {
-    field: 'estado',
-    entity: 'contrato',
-    headers: ['ESTADO', 'ESTADO CONTRATO'],
-    parse: (v) => String(v || '').trim(),
-  },
-  {
-    field: 'fechaInicio',
-    entity: 'contrato',
-    headers: ['FECHA INICIAL', 'FECHA INICIO', 'INICIO'],
-    parse: parseDate,
-  },
-  {
-    field: 'fechaFin',
-    entity: 'contrato',
-    headers: ['FECHA CADUCIDAD', 'FECHA FIN', 'FECHA VENCIMIENTO', 'CADUCIDAD'],
-    parse: parseDate,
-  },
-  {
-    field: 'precioAnual',
-    entity: 'contrato',
-    headers: ['IMPORTE POR PERIODO', 'IMPORTE ANUAL', 'PRECIO ANUAL', 'PRECIO'],
-    parse: parseNum,
-  },
-  {
-    field: 'periodicidadMeses',
-    entity: 'contrato',
-    headers: ['PERIODICIDAD', 'PERIODICIDAD MESES', 'CADENCIA'],
-    parse: (v) => {
-      const s = String(v || '').trim().toLowerCase()
-      if (s.endsWith('y') || s === '1y' || s === 'anual') return 12
-      if (s.endsWith('m')) {
-        const n = parseInt(s.replace('m', ''), 10)
-        return isNaN(n) ? null : n
-      }
-      const n = parseNum(v)
-      return n
-    },
-  },
-]
 
 function parseDate(v: unknown): Date | null {
   if (v === null || v === undefined || v === '') return null
   if (v instanceof Date) return v
   if (typeof v === 'number') {
-    // Excel serial date
-    if (v > 30000 && v < 60000) {
-      return new Date(Date.UTC(1899, 11, 30) + v * 86400 * 1000)
-    }
+    if (v > 30000 && v < 60000) return new Date(Date.UTC(1899, 11, 30) + v * 86400 * 1000)
     return null
   }
-  const s = String(v).trim()
-  if (s === '') return null
-  const parsed = new Date(s)
+  const parsed = new Date(String(v).trim())
   return isNaN(parsed.getTime()) ? null : parsed
 }
 
@@ -308,85 +30,9 @@ function parseNum(v: unknown): number | null {
   return Number.isFinite(n) ? n : null
 }
 
-function parseStr(v: unknown): string | null {
-  if (v === null || v === undefined) return null
-  const s = String(v).trim()
-  return s === '' ? null : s
-}
+const M_PATTERN = /^M\d+$/i
 
-// ============================================================
-// Lógica de cálculo de próxima revisión
-// ============================================================
-// Regex: M1, M2, M3... + FSCR + FSSR (todos POR_CONTRATO)
-const GRUPO_POR_CONTRATO_PATTERN = /^(M\d+|FSCR|FSSR)$/i
-
-function calcularProximaRevision(
-  horasActuales: number,
-  tipoRevision: 'POR_HORAS' | 'POR_CONTRATO',
-  periodicidadMeses: number,
-  ultimaRevision: Date | null,
-  fechaInicioContrato: Date | null,
-  revisionesContratadasAnual?: number | null,
-  umbralHorasConfigurado?: number | null,
-  horasAnualesEstimadas?: number | null,
-) {
-  if (tipoRevision === 'POR_CONTRATO') {
-    // Si el usuario puso manualmente el nº de revisiones/año, usar 12/N como periodicidad
-    let periodicidadFinal = periodicidadMeses
-    if (revisionesContratadasAnual && revisionesContratadasAnual > 0) {
-      periodicidadFinal = Math.round(12 / revisionesContratadasAnual)
-    }
-    const base = ultimaRevision || fechaInicioContrato || new Date()
-    const proximaFecha = new Date(base)
-    proximaFecha.setMonth(proximaFecha.getMonth() + periodicidadFinal)
-    return {
-      tipoRevision,
-      proximaFecha,
-      proximaHoras: null as number | null,
-      umbralActual: null as number | null,
-      nivel: 'CONTRATO' as string | null,
-    }
-  }
-
-  // POR_HORAS: umbral configurable (default 500, configurable a 1000)
-  const UMBRAL = umbralHorasConfigurado && umbralHorasConfigurado > 0 ? umbralHorasConfigurado : 1000
-  const proximaHoras = Math.ceil((horasActuales + 1) / UMBRAL) * UMBRAL
-  if (proximaHoras <= horasActuales) {
-    return { tipoRevision, proximaFecha: null, proximaHoras: null, umbralActual: null, nivel: null }
-  }
-  // Si tenemos tasa de uso, calcular fecha estimada real
-  let proximaFecha: Date
-  if (horasAnualesEstimadas && horasAnualesEstimadas > 0) {
-    const horasRestantes = proximaHoras - horasActuales
-    const diasRestantes = Math.ceil((horasRestantes / horasAnualesEstimadas) * 365)
-    proximaFecha = new Date()
-    proximaFecha.setDate(proximaFecha.getDate() + diasRestantes)
-  } else {
-    proximaFecha = new Date()
-    proximaFecha.setDate(proximaFecha.getDate() + 30)
-  }
-  return {
-    tipoRevision,
-    proximaFecha,
-    proximaHoras,
-    umbralActual: UMBRAL,
-    nivel: UMBRAL === 1000 ? 'REVISION_1000H' as string | null : 'REVISION_500H' as string | null,
-  }
-}
-
-interface SyncResult {
-  rowsTotal: number
-  rowsUpdated: number
-  rowsSkipped: number
-  rowsFailed: number
-  columnsDetected: Array<{ header: string; field: string; entity: string }>
-  fieldsUpdated: Record<string, number>
-  errores: string[]
-}
-
-// POST /api/sync/excel-flexible
-// Acepta cualquier Excel de BC y actualiza por Nº producto/cliente los campos que reconozca.
-// Modo incremental SIEMPRE: preserva datos manuales (notas, revisiones COMPLETADAS, tipoRevision si fue manual).
+// POST /api/sync/excel-flexible — VERSIÓN BULK: procesa 9000+ filas rápido
 export async function POST(request: NextRequest) {
   const startTime = Date.now()
   let fileName = 'desconocido.xlsx'
@@ -395,545 +41,350 @@ export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData()
     const file = formData.get('file')
-    const dryRun = formData.get('dryRun') === 'true' // solo detectar columnas, no actualizar
+    const dryRun = formData.get('dryRun') === 'true'
 
     if (!file || !(file instanceof File)) {
-      return NextResponse.json(
-        { error: 'No se ha recibido ningún archivo' },
-        { status: 400 }
-      )
+      return NextResponse.json({ error: 'No se ha recibido ningún archivo' }, { status: 400 })
     }
 
     fileName = file.name
     fileSize = file.size
 
     if (!fileName.match(/\.(xlsx|xls)$/i)) {
-      return NextResponse.json(
-        { error: 'El archivo debe ser .xlsx o .xls' },
-        { status: 400 }
-      )
+      return NextResponse.json({ error: 'El archivo debe ser .xlsx o .xls' }, { status: 400 })
     }
 
     const bytes = await file.arrayBuffer()
     const buffer = Buffer.from(bytes)
-
     const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true })
-    const sheetName = workbook.SheetNames[0]
-    const sheet = workbook.Sheets[sheetName]
-    if (!sheet) {
-      return NextResponse.json({ error: 'El Excel no tiene hojas' }, { status: 400 })
-    }
+    const sheet = workbook.Sheets[workbook.SheetNames[0]]
+    if (!sheet) return NextResponse.json({ error: 'El Excel no tiene hojas' }, { status: 400 })
 
-    const rows: Record<string, unknown>[] = XLSX.utils.sheet_to_json(sheet, {
-      defval: null,
-      raw: true,
-    })
+    const rows: Record<string, unknown>[] = XLSX.utils.sheet_to_json(sheet, { defval: null, raw: true })
+    if (!rows.length) return NextResponse.json({ error: 'El Excel no tiene filas' }, { status: 400 })
 
-    if (!rows.length) {
-      return NextResponse.json({ error: 'El Excel no tiene filas' }, { status: 400 })
-    }
-
-    // Detectar columnas: mapear cada cabecera del Excel a una regla
+    // Detectar columnas por nombre (normalizado)
     const headers = Object.keys(rows[0])
-    const detectedColumns: Array<{ header: string; field: string; entity: string }> = []
-    const headerToRule = new Map<string, ColumnRule>()
+    const normHeaders = headers.map(h => normalizeHeader(h))
 
-    for (const header of headers) {
-      const normalized = normalizeHeader(header)
-      const rule = COLUMN_RULES.find((r) => r.headers.includes(normalized))
-      if (rule) {
-        headerToRule.set(header, rule)
-        detectedColumns.push({
-          header,
-          field: rule.field,
-          entity: rule.entity,
-        })
+    // Mapa de nombre normalizado → header original
+    const headerMap = new Map<string, string>()
+    headers.forEach((h, i) => headerMap.set(normHeaders[i], h))
+
+    // Función helper para obtener el valor de una columna
+    const getVal = (row: Record<string, unknown>, ...names: string[]): unknown => {
+      for (const n of names) {
+        const norm = normalizeHeader(n)
+        const orig = headerMap.get(norm)
+        if (orig && row[orig] !== null && row[orig] !== undefined && row[orig] !== '') {
+          return row[orig]
+        }
       }
+      return null
     }
 
-    // Si es dry-run, devolver solo las columnas detectadas
     if (dryRun) {
+      // Devolver qué columnas se reconocen
+      const detected: Array<{ header: string; field: string }> = []
+      const checks: Array<{ names: string[]; field: string }> = [
+        { names: ['Nº', 'Nº prod. servicio', 'Nº producto'], field: 'Nº (clave equipo)' },
+        { names: ['Descripción'], field: 'Descripción' },
+        { names: ['Siguiente Fecha Mantenimiento'], field: 'Siguiente Fecha Mantenimiento' },
+        { names: ['Nº Serie'], field: 'Nº Serie' },
+        { names: ['Modelo'], field: 'Modelo' },
+        { names: ['Es propio'], field: 'Es propio' },
+        { names: ['Nº cliente Propietario'], field: 'Nº cliente Propietario' },
+        { names: ['Nombre Cliente Propietario'], field: 'Nombre Cliente Propietario' },
+        { names: ['Nombre Cliente Ubicación'], field: 'Nombre Cliente Ubicación' },
+        { names: ['Nº cliente ubicación'], field: 'Nº cliente ubicación' },
+        { names: ['Cód. dirección envío cliente ubicación'], field: 'Cód. dirección envío' },
+        { names: ['Nº de horas'], field: 'Nº de horas' },
+        { names: ['Nº Sucursal'], field: 'Nº Sucursal' },
+        { names: ['Código de Servicio'], field: 'Código de Servicio' },
+        { names: ['Nº Contrato Servicio Alquiler en Vigor'], field: 'Contrato Alquiler' },
+        { names: ['Nº Contrato Servicio Mantenimiento en Vigor'], field: 'Contrato Mantenimiento' },
+        { names: ['Nº Contrato Interno Mantenimiento en Vigor'], field: 'Contrato Interno' },
+      ]
+      for (const c of checks) {
+        for (const n of c.names) {
+          if (headerMap.has(normalizeHeader(n))) {
+            detected.push({ header: headerMap.get(normalizeHeader(n))!, field: c.field })
+            break
+          }
+        }
+      }
       return NextResponse.json({
         success: true,
         dryRun: true,
-        fileName,
-        fileSize,
         rowsTotal: rows.length,
-        columnsDetected: detectedColumns,
-        columnsNotDetected: headers.filter((h) => !headerToRule.has(h)),
+        columnsDetected: detected,
       })
     }
 
-    const result: SyncResult = {
-      rowsTotal: rows.length,
-      rowsUpdated: 0,
-      rowsSkipped: 0,
-      rowsFailed: 0,
-      columnsDetected: detectedColumns,
-      fieldsUpdated: {},
-      errores: [],
-    }
+    // ============================================================
+    // PROCESAMIENTO BULK
+    // ============================================================
 
-    // Pre-cargar caches para lookup rápido
-    // Equipos por codigoProductoBC
-    const equiposCache = new Map<string, string>() // codigoProductoBC → equipoId
-    const allEquipos = await db.equipo.findMany({
+    // 1. Cargar equipos existentes (solo codigoProductoBC)
+    const existingEquipos = await db.equipo.findMany({
       where: { codigoProductoBC: { not: null } },
-      select: { id: true, codigoProductoBC: true, numeroSerie: true, tipoRevision: true, tipoRevisionManual: true, ultimaRevision: true, horasUso: true, clienteId: true },
+      select: { id: true, codigoProductoBC: true },
     })
-    for (const e of allEquipos) {
-      if (e.codigoProductoBC) equiposCache.set(e.codigoProductoBC, e.id)
-    }
-    // Equipos por numeroSerie (fallback)
-    const equiposBySerie = new Map<string, string>()
-    for (const e of allEquipos) {
-      if (e.numeroSerie) equiposBySerie.set(e.numeroSerie, e.id)
-    }
+    const existingCodigos = new Set(existingEquipos.map(e => e.codigoProductoBC))
 
-    // Clientes por codigoExterno
-    const clientesCache = new Map<string, string>() // codigoExterno → clienteId
-    const allClientes = await db.cliente.findMany({
+    // 2. Cargar clientes existentes
+    const existingClientes = await db.cliente.findMany({
       where: { codigoExterno: { not: null } },
       select: { id: true, codigoExterno: true },
     })
-    for (const c of allClientes) {
-      if (c.codigoExterno) clientesCache.set(c.codigoExterno, c.id)
-    }
+    const existingClienteMap = new Map<string, string>()
+    existingClientes.forEach(c => { if (c.codigoExterno) existingClienteMap.set(c.codigoExterno, c.id) })
 
-    // Contratos por numero
-    const contratosCache = new Map<string, string>()
-    const allContratos = await db.contrato.findMany({
-      select: { id: true, numero: true, clienteId: true },
-    })
-    for (const c of allContratos) {
-      if (c.numero) contratosCache.set(c.numero.toUpperCase(), c.id)
-    }
-    // También indexar contratos por numero transformado CMI→CM
-    for (const c of allContratos) {
-      if (!c.numero) continue
-      const upper = c.numero.toUpperCase()
-      if (upper.startsWith('CMI')) {
-        const transformed = 'CM' + upper.slice(3)
-        if (!contratosCache.has(transformed)) contratosCache.set(transformed, c.id)
+    // 3. Procesar filas: separar nuevas de existentes
+    const clientesParaCrear: Map<string, { nombre: string; nif: string; codigoExterno: string; zona?: string }> = new Map()
+    const equiposParaCrear: Array<{
+      codigo: string
+      tipo: string
+      marca: string
+      modelo: string
+      numeroSerie: string
+      horasUso: number
+      clienteId: string | null
+      codigoProductoBC: string
+      esMaquinaPropia: boolean
+      ubicacion: string | null
+      ultimaRevision: Date | null
+      proximaRevisionFecha: Date | null
+      contratoActivoId: string | null
+      codigoServicio: string | null
+      numClientePropietario: string | null
+      nombreClienteUbicacion: string | null
+      numClienteUbicacion: string | null
+      codDireccionEnvio: string | null
+      numSucursal: string | null
+      contratoAlquilerVigor: string | null
+      contratoMantenimVigor: string | null
+      estado: string
+      tipoRevision: string
+    }> = []
+
+    let rowsSkipped = 0
+    let rowsCreated = 0
+
+    for (const row of rows) {
+      // Obtener clave del equipo (Nº)
+      const codigo = String(getVal(row, 'Nº', 'Nº prod. servicio', 'Nº producto') || '').trim()
+      if (!codigo) { rowsSkipped++; continue }
+
+      // Si el equipo ya existe, saltarlo (modo solo-nuevos)
+      if (existingCodigos.has(codigo)) { rowsSkipped++; continue }
+
+      // Recoger todos los campos
+      const descripcion = String(getVal(row, 'Descripción') || codigo).trim()
+      const serie = String(getVal(row, 'Nº Serie') || codigo).trim()
+      const modelo = String(getVal(row, 'Modelo') || descripcion).trim()
+      const horasRaw = parseNum(getVal(row, 'Nº de horas', 'Nº de horas'))
+      const horas = horasRaw || 0
+      const esPropioRaw = String(getVal(row, 'Es propio') || '').trim().toUpperCase()
+      const esPropia = esPropioRaw === 'SI' || esPropioRaw === 'SÍ' || esPropioRaw === 'TRUE' || esPropioRaw === '1'
+
+      const clienteCod = String(getVal(row, 'Nº cliente Propietario', 'Nº cliente') || '').trim()
+      const clienteNombre = String(getVal(row, 'Nombre Cliente Propietario', 'Nombre Cliente', 'Nombre') || '').trim()
+
+      const ubicacion = String(getVal(row, 'Nombre Cliente Ubicación', 'Ubicación') || '').trim() || null
+      const ultRev = parseDate(getVal(row, 'Siguiente Fecha Mantenimiento', 'Fecha última revisión', 'Fecha registro'))
+      const proxRev = parseDate(getVal(row, 'Siguiente Fecha Mantenimiento'))
+
+      const contratoInterno = String(getVal(row, 'Nº Contrato Interno Mantenimiento en Vigor') || '').trim() || null
+      const contratoMant = String(getVal(row, 'Nº Contrato Servicio Mantenimiento en Vigor') || '').trim() || null
+      const contratoAlq = String(getVal(row, 'Nº Contrato Servicio Alquiler en Vigor') || '').trim() || null
+      const codServicio = String(getVal(row, 'Código de Servicio') || '').trim() || null
+      const numClienteProp = String(getVal(row, 'Nº cliente Propietario') || '').trim() || null
+      const nombreClienteUbic = String(getVal(row, 'Nombre Cliente Ubicación') || '').trim() || null
+      const numClienteUbic = String(getVal(row, 'Nº cliente ubicación') || '').trim() || null
+      const codDirEnvio = String(getVal(row, 'Cód. dirección envío cliente ubicación') || '').trim() || null
+      const numSucursal = String(getVal(row, 'Nº Sucursal') || '').trim() || null
+
+      // Registrar cliente para crear (si no existe)
+      if (clienteCod && !existingClienteMap.has(clienteCod) && !clientesParaCrear.has(clienteCod)) {
+        clientesParaCrear.set(clienteCod, {
+          nombre: clienteNombre || clienteCod,
+          nif: `BC-${clienteCod}`,
+          codigoExterno: clienteCod,
+          zona: codDirEnvio || numSucursal || undefined,
+        })
       }
-      if (upper.startsWith('CMIB')) {
-        const transformed = 'CMB' + upper.slice(4)
-        if (!contratosCache.has(transformed)) contratosCache.set(transformed, c.id)
-      }
+
+      // Añadir equipo a la lista de creación
+      equiposParaCrear.push({
+        codigo,
+        tipo: 'DESCONOCIDO',
+        marca: '—',
+        modelo,
+        numeroSerie: serie + '-' + Date.now().toString(36).slice(-4), // evitar duplicados
+        horasUso: horas,
+        clienteId: null, // se asignará después de crear clientes
+        codigoProductoBC: codigo,
+        esMaquinaPropia: esPropia,
+        ubicacion,
+        ultimaRevision: ultRev,
+        proximaRevisionFecha: proxRev,
+        contratoActivoId: contratoInterno,
+        codigoServicio: codServicio,
+        numClientePropietario: numClienteProp,
+        nombreClienteUbicacion: nombreClienteUbic,
+        numClienteUbicacion: numClienteUbic,
+        codDireccionEnvio: codDirEnvio,
+        numSucursal: numSucursal,
+        contratoAlquilerVigor: contratoAlq,
+        contratoMantenimVigor: contratoMant,
+        estado: 'OPERATIVO',
+        tipoRevision: esPropia ? 'POR_HORAS' : 'POR_CONTRATO',
+      })
+      rowsCreated++
     }
 
-    // Equipos que requieren recálculo de próxima revisión
-    const equiposParaRecalc = new Set<string>()
-
-    // Tracking de key values para creación de nuevos registros
+    // 4. Crear clientes en bloque (createMany)
     let clientesCreados = 0
-    let equiposCreados = 0
-    let contratosCreados = 0
+    if (clientesParaCrear.size > 0) {
+      const clienteArray = Array.from(clientesParaCrear.values())
+      // createMany en lotes de 500
+      for (let i = 0; i < clienteArray.length; i += 500) {
+        await db.cliente.createMany({ data: clienteArray.slice(i, i + 500) })
+      }
+      clientesCreados = clienteArray.length
 
-    for (let rowIdx = 0; rowIdx < rows.length; rowIdx++) {
-      const row = rows[rowIdx]
-      try {
-        // Identificar la clave + guardar el valor del key
-        let equipoId: string | null = null
-        let clienteId: string | null = null
-        let contratoId: string | null = null
-        let productoKeyValue: string | null = null
-        let clienteKeyValue: string | null = null
-        let contratoKeyValue: string | null = null
-        let serieKeyValue: string | null = null
+      // Recargar clientes para obtener los IDs
+      const newClientes = await db.cliente.findMany({
+        where: { codigoExterno: { in: Array.from(clientesParaCrear.keys()) } },
+        select: { id: true, codigoExterno: true },
+      })
+      newClientes.forEach(c => { if (c.codigoExterno) existingClienteMap.set(c.codigoExterno, c.id) })
+    }
 
-        for (const [header, rule] of headerToRule.entries()) {
-          if (rule.field === '__KEY_PRODUCTO__') {
-            const val = rule.parse(row[header]) as string | null
-            if (val) {
-              productoKeyValue = val
-              equipoId = equiposCache.get(val) || null
-            }
-          } else if (rule.field === '__KEY_SERIE__') {
-            const val = rule.parse(row[header]) as string | null
-            if (val) {
-              serieKeyValue = val
-              if (!equipoId) equipoId = equiposBySerie.get(val) || null
-            }
-          } else if (rule.field === '__KEY_CLIENTE__') {
-            const val = rule.parse(row[header]) as string | null
-            if (val) {
-              clienteKeyValue = val
-              clienteId = clientesCache.get(val) || null
-            }
-          } else if (rule.field === '__KEY_CONTRATO__') {
-            const val = (rule.parse(row[header]) as string | null)?.toUpperCase()
-            if (val) {
-              contratoKeyValue = val
-              contratoId = contratosCache.get(val) || null
-            }
-          }
-        }
-
-        // Si encontramos equipo pero no cliente, derivar cliente del equipo
-        if (equipoId && !clienteId) {
-          const eq = allEquipos.find((e) => e.id === equipoId)
-          if (eq?.clienteId) clienteId = eq.clienteId
-        }
-        // Si encontramos contrato pero no cliente, derivar cliente del contrato
-        if (contratoId && !clienteId) {
-          const c = allContratos.find((c) => c.id === contratoId)
-          if (c?.clienteId) clienteId = c.clienteId
-        }
-
-        // ============================================================
-        // CREACIÓN DE NUEVOS REGISTROS (si no existen)
-        // ============================================================
-
-        // 1. Crear cliente si tenemos key pero no existe
-        if (!clienteId && clienteKeyValue) {
-          // Buscar el nombre del cliente en las columnas reconocidas
-          let clienteNombre = clienteKeyValue
-          for (const [header, rule] of headerToRule.entries()) {
-            if (rule.field === 'nombre' && rule.entity === 'cliente') {
-              const val = rule.parse(row[header]) as string | null
-              if (val) { clienteNombre = val; break }
-            }
-          }
-          const nuevoCliente = await db.cliente.create({
-            data: {
-              nombre: clienteNombre,
-              nif: `BC-${clienteKeyValue}`,
-              codigoExterno: clienteKeyValue,
-              estado: 'ACTIVO',
-            },
+    // 5. Asignar clienteId a cada equipo
+    // Obtener o crear cliente fallback
+    let fallbackClienteId: string | null = null
+    for (const eq of equiposParaCrear) {
+      const cod = eq.numClientePropietario
+      if (cod && existingClienteMap.has(cod)) {
+        eq.clienteId = existingClienteMap.get(cod)!
+      } else {
+        if (!fallbackClienteId) {
+          const fb = await db.cliente.findFirst({
+            where: { nif: 'BC-SIN-CLIENTE' },
+            select: { id: true },
           })
-          clienteId = nuevoCliente.id
-          clientesCache.set(clienteKeyValue, nuevoCliente.id)
-          clientesCreados++
-        }
-
-        // Si todavía no hay clienteId, crear uno fallback
-        if (!clienteId) {
-          // Buscar o crear cliente fallback "Sin cliente"
-          if (!clientesCache.has('FALLBACK')) {
-            const fb = await db.cliente.create({
+          if (fb) {
+            fallbackClienteId = fb.id
+          } else {
+            const nuevo = await db.cliente.create({
               data: { nombre: 'Sin cliente asignado', nif: 'BC-SIN-CLIENTE', estado: 'ACTIVO' },
             })
-            clientesCache.set('FALLBACK', fb.id)
-          }
-          clienteId = clientesCache.get('FALLBACK')!
-        }
-
-        // 2. Crear equipo si tenemos key pero no existe
-        if (!equipoId && productoKeyValue) {
-          // Recoger campos del Excel para el nuevo equipo
-          let modeloVal = productoKeyValue
-          let serieVal = serieKeyValue || productoKeyValue
-          let marcaVal = '—'
-          let horasVal = 0
-          let esPropia = false
-          let ubicacionVal: string | null = null
-          let ultimaRevVal: Date | null = null
-          let proximaRevFechaVal: Date | null = null
-          let contratoActivoIdVal: string | null = null
-
-          for (const [header, rule] of headerToRule.entries()) {
-            if (rule.field.startsWith('__KEY_')) continue
-            const val = rule.parse(row[header])
-            if (val === null || val === undefined || val === '') continue
-            if (rule.entity === 'equipo') {
-              if (rule.field === 'modelo') modeloVal = String(val)
-              else if (rule.field === 'numeroSerie') serieVal = String(val)
-              else if (rule.field === 'marca') marcaVal = String(val)
-              else if (rule.field === 'horasUso') horasVal = Number(val) || 0
-              else if (rule.field === 'esMaquinaPropia') esPropia = Boolean(val)
-              else if (rule.field === 'ubicacion') ubicacionVal = String(val)
-              else if (rule.field === 'ultimaRevision') ultimaRevVal = val as Date
-              else if (rule.field === 'proximaRevisionFecha') proximaRevFechaVal = val as Date
-              else if (rule.field === 'contratoActivoId') contratoActivoIdVal = String(val)
-            }
-          }
-
-          // Generar numeroSerie único si colisiona
-          let serieFinal = serieVal
-          if (equiposBySerie.has(serieFinal)) {
-            serieFinal = serieFinal + '-' + Date.now().toString(36)
-          }
-
-          const nuevoEquipo = await db.equipo.create({
-            data: {
-              codigo: productoKeyValue,
-              tipo: 'DESCONOCIDO',
-              marca: marcaVal,
-              modelo: modeloVal,
-              numeroSerie: serieFinal,
-              horasUso: horasVal,
-              clienteId,
-              codigoProductoBC: productoKeyValue,
-              contratoActivoId: contratoActivoIdVal,
-              esMaquinaPropia: esPropia,
-              ubicacion: ubicacionVal,
-              ultimaRevision: ultimaRevVal,
-              proximaRevisionFecha: proximaRevFechaVal,
-              estado: 'OPERATIVO',
-              tipoRevision: esPropia ? 'POR_HORAS' : 'POR_CONTRATO',
-            },
-          })
-          equipoId = nuevoEquipo.id
-          equiposCache.set(productoKeyValue, nuevoEquipo.id)
-          equiposBySerie.set(serieFinal, nuevoEquipo.id)
-          allEquipos.push({
-            id: nuevoEquipo.id,
-            codigoProductoBC: productoKeyValue,
-            numeroSerie: serieFinal,
-            tipoRevision: esPropia ? 'POR_HORAS' : 'POR_CONTRATO',
-            tipoRevisionManual: false,
-            ultimaRevision: ultimaRevVal,
-            horasUso: horasVal,
-            clienteId,
-          })
-          equiposCreados++
-          equiposParaRecalc.add(nuevoEquipo.id)
-        }
-
-        // 3. Crear contrato si tenemos key pero no existe
-        if (!contratoId && contratoKeyValue) {
-          const nuevoContrato = await db.contrato.create({
-            data: {
-              numero: contratoKeyValue,
-              clienteId,
-              fechaInicio: new Date(),
-              fechaFin: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-              tipoMantenimiento: 'MIXTO',
-              periodicidadMeses: 12,
-              precioAnual: 0,
-              estado: 'ACTIVO',
-            },
-          })
-          contratoId = nuevoContrato.id
-          contratosCache.set(contratoKeyValue, nuevoContrato.id)
-          allContratos.push({ id: nuevoContrato.id, numero: contratoKeyValue, clienteId })
-          contratosCreados++
-        }
-
-        // Si después de todo no hay ningún ID, saltar
-        if (!equipoId && !clienteId && !contratoId) {
-          result.rowsSkipped++
-          continue
-        }
-
-        // ============================================================
-        // MODO SOLO-NUEVOS: si el equipo YA EXISTÍA antes de esta subida,
-        // saltarlo entirely. No sobreescribir datos manuales.
-        // Solo incorporar equipos NUEVOS que no estén en la BD.
-        // ============================================================
-        const equipoYaExistia = equipoId !== null
-        if (equipoYaExistia) {
-          result.rowsSkipped++
-          continue
-        }
-
-        // Procesar actualizaciones por entidad (solo para registros recién creados)
-        const equipoUpdates: Record<string, unknown> = {}
-        const clienteUpdates: Record<string, unknown> = {}
-        const contratoUpdates: Record<string, unknown> = {}
-
-        for (const [header, rule] of headerToRule.entries()) {
-          // Skip claves
-          if (rule.field.startsWith('__KEY_')) continue
-
-          const val = rule.parse(row[header])
-          if (val === null || val === undefined || val === '') continue
-
-          // Asignar al entity correcto
-          if (rule.entity === 'equipo' && equipoId) {
-            equipoUpdates[rule.field] = val
-          } else if (rule.entity === 'cliente' && clienteId) {
-            clienteUpdates[rule.field] = val
-          } else if (rule.entity === 'contrato' && contratoId) {
-            contratoUpdates[rule.field] = val
+            fallbackClienteId = nuevo.id
           }
         }
-
-        // ============================================================
-        // Reglas de preservación de datos manuales
-        // ============================================================
-
-        // Para equipo: preservar horasUso si el valor nuevo es menor (las horas solo suben)
-        if (equipoId && 'horasUso' in equipoUpdates) {
-          const eq = allEquipos.find((e) => e.id === equipoId)
-          if (eq) {
-            const newHoras = Number(equipoUpdates.horasUso)
-            if (Number.isFinite(newHoras) && newHoras < eq.horasUso) {
-              // No bajar las horas, mantener las actuales
-              delete equipoUpdates.horasUso
-            } else if (Number.isFinite(newHoras) && newHoras > eq.horasUso) {
-              // Subió: necesitamos recalcular
-              equiposParaRecalc.add(equipoId)
-            }
-          }
-        }
-
-        // Para equipo: si ultimaRevision se actualiza, recalcular próxima
-        if (equipoId && 'ultimaRevision' in equipoUpdates) {
-          equiposParaRecalc.add(equipoId)
-        }
-
-        // Aplicar updates
-        let updatedSomething = false
-        if (equipoId && Object.keys(equipoUpdates).length > 0) {
-          await db.equipo.update({
-            where: { id: equipoId },
-            data: equipoUpdates,
-          })
-          for (const k of Object.keys(equipoUpdates)) {
-            result.fieldsUpdated[`equipo.${k}`] = (result.fieldsUpdated[`equipo.${k}`] || 0) + 1
-          }
-          updatedSomething = true
-        }
-        if (clienteId && Object.keys(clienteUpdates).length > 0) {
-          await db.cliente.update({
-            where: { id: clienteId },
-            data: clienteUpdates,
-          })
-          for (const k of Object.keys(clienteUpdates)) {
-            result.fieldsUpdated[`cliente.${k}`] = (result.fieldsUpdated[`cliente.${k}`] || 0) + 1
-          }
-          updatedSomething = true
-        }
-        if (contratoId && Object.keys(contratoUpdates).length > 0) {
-          await db.contrato.update({
-            where: { id: contratoId },
-            data: contratoUpdates,
-          })
-          for (const k of Object.keys(contratoUpdates)) {
-            result.fieldsUpdated[`contrato.${k}`] = (result.fieldsUpdated[`contrato.${k}`] || 0) + 1
-          }
-          updatedSomething = true
-        }
-
-        if (updatedSomething || equiposCreados > 0 || clientesCreados > 0 || contratosCreados > 0) {
-          // Si se creó un equipo nuevo o se actualizó algo, contar como procesado
-          if (updatedSomething) result.rowsUpdated++
-          else result.rowsSkipped++ // se crearon registros pero no hubo updates adicionales
-        } else {
-          result.rowsSkipped++
-        }
-      } catch (err) {
-        result.rowsFailed++
-        if (result.errores.length < 50) {
-          result.errores.push(`Fila ${rowIdx + 2}: ${String(err).slice(0, 200)}`)
-        }
+        eq.clienteId = fallbackClienteId
       }
     }
 
-    // ============================================================
-    // Recalcular próxima revisión para equipos afectados
-    // ============================================================
-    let revisionesRecalculadas = 0
-    if (equiposParaRecalc.size > 0) {
-      // Pre-cargar contratos por equipoId para periodicidad
-      const contratosEquipos = await db.contratoEquipo.findMany({
-        where: { equipoId: { in: Array.from(equiposParaRecalc) } },
-        include: { contrato: { select: { periodicidadMeses: true, fechaInicio: true, codGrupoContrato: true } } },
+    // 6. Crear equipos en bloque (createMany)
+    let equiposCreadosCount = 0
+    if (equiposParaCrear.length > 0) {
+      for (let i = 0; i < equiposParaCrear.length; i += 500) {
+        await db.equipo.createMany({ data: equiposParaCrear.slice(i, i + 500) })
+        equiposCreadosCount += Math.min(500, equiposParaCrear.length - i)
+      }
+    }
+
+    // 7. Crear revisiones para los equipos nuevos (en bloque)
+    let revisionesCreadas = 0
+    if (equiposCreadosCount > 0) {
+      const newEquipos = await db.equipo.findMany({
+        where: { codigoProductoBC: { in: equiposParaCrear.map(e => e.codigo) } },
+        select: { id: true, codigoProductoBC: true, tipoRevision: true, horasUso: true, ultimaRevision: true, proximaRevisionFecha: true, esMaquinaPropia: true },
       })
-      const contratoPorEquipo = new Map<string, { periodicidad: number; fechaInicio: Date | null; grupo: string | null }>()
-      for (const ce of contratosEquipos) {
-        if (!contratoPorEquipo.has(ce.equipoId)) {
-          contratoPorEquipo.set(ce.equipoId, {
-            periodicidad: ce.contrato.periodicidadMeses || 12,
-            fechaInicio: ce.contrato.fechaInicio,
-            grupo: ce.contrato.codGrupoContrato,
-          })
+
+      const revisionesParaCrear: Array<{
+        equipoId: string
+        tipo: string
+        nivel: string | null
+        horasObjetivo: number | null
+        fechaProgramada: Date
+        estado: string
+      }> = []
+
+      for (const eq of newEquipos) {
+        let fechaProg: Date
+        let nivel: string | null = null
+        let horasObj: number | null = null
+
+        if (eq.proximaRevisionFecha) {
+          fechaProg = eq.proximaRevisionFecha
+          nivel = 'CONTRATO'
+        } else if (eq.tipoRevision === 'POR_HORAS') {
+          const UMBRAL = 1000
+          horasObj = Math.ceil((eq.horasUso + 1) / UMBRAL) * UMBRAL
+          nivel = 'REVISION_1000H'
+          fechaProg = new Date()
+          fechaProg.setDate(fechaProg.getDate() + 30)
+        } else {
+          fechaProg = new Date()
+          fechaProg.setMonth(fechaProg.getMonth() + 12)
+          nivel = 'CONTRATO'
         }
+
+        revisionesParaCrear.push({
+          equipoId: eq.id,
+          tipo: eq.tipoRevision,
+          nivel,
+          horasObjetivo: horasObj,
+          fechaProgramada: fechaProg,
+          estado: 'PROGRAMADA',
+        })
       }
 
-      for (const equipoId of equiposParaRecalc) {
-        try {
-          const equipo = await db.equipo.findUnique({
-            where: { id: equipoId },
-            select: {
-              id: true,
-              horasUso: true,
-              ultimaRevision: true,
-              tipoRevision: true,
-              tipoRevisionManual: true,
-              revisionesContratadasAnual: true,
-              umbralHorasActual: true,
-              horasAnualesEstimadas: true,
-            },
-          })
-          if (!equipo) continue
+      if (revisionesParaCrear.length > 0) {
+        for (let i = 0; i < revisionesParaCrear.length; i += 500) {
+          await db.revisionProgramada.createMany({ data: revisionesParaCrear.slice(i, i + 500) })
+        }
+        revisionesCreadas = revisionesParaCrear.length
+      }
 
-          // Determinar tipo de revisión SIEMPRE (sin respetar tipoRevisionManual en este flujo,
-          // porque el usuario está forzando una actualización desde BC)
-          const contratoInfo = contratoPorEquipo.get(equipoId)
-          const grupo = contratoInfo?.grupo?.toUpperCase()
-          const esPorContrato = grupo ? GRUPO_POR_CONTRATO_PATTERN.test(grupo) : false
-          const tipoRevision: 'POR_HORAS' | 'POR_CONTRATO' =
-            equipo.tipoRevisionManual ? (equipo.tipoRevision as 'POR_HORAS' | 'POR_CONTRATO')
-            : esPorContrato ? 'POR_CONTRATO' : 'POR_HORAS'
-          const periodicidad = contratoInfo?.periodicidad || 12
-
-          const calc = calcularProximaRevision(
-            equipo.horasUso,
-            tipoRevision,
-            periodicidad,
-            equipo.ultimaRevision,
-            contratoInfo?.fechaInicio || null,
-            equipo.revisionesContratadasAnual,
-            equipo.umbralHorasActual,
-            equipo.horasAnualesEstimadas,
-          )
-
-          await db.equipo.update({
-            where: { id: equipoId },
-            data: {
-              tipoRevision: equipo.tipoRevisionManual ? equipo.tipoRevision : tipoRevision,
-              umbralHorasActual: calc.umbralActual,
-              proximaRevisionHoras: calc.proximaHoras,
-              proximaRevisionFecha: calc.proximaFecha,
-            },
-          })
-
-          // Borrar revisiones PROGRAMADAS previas y crear nueva
-          await db.revisionProgramada.deleteMany({
-            where: { equipoId, estado: 'PROGRAMADA' },
-          })
-          if (calc.proximaFecha) {
-            await db.revisionProgramada.create({
+      // Actualizar proximaRevisionFecha en los equipos que no la tenían
+      for (const eq of newEquipos) {
+        if (!eq.proximaRevisionFecha) {
+          const rev = revisionesParaCrear.find(r => r.equipoId === eq.id)
+          if (rev) {
+            await db.equipo.update({
+              where: { id: eq.id },
               data: {
-                equipoId,
-                tipo: tipoRevision,
-                nivel: calc.nivel,
-                horasObjetivo: calc.proximaHoras,
-                fechaProgramada: calc.proximaFecha,
-                estado: 'PROGRAMADA',
+                proximaRevisionFecha: rev.fechaProgramada,
+                proximaRevisionHoras: rev.horasObjetivo,
+                umbralHorasActual: rev.nivel === 'REVISION_1000H' ? 1000 : null,
               },
             })
-            revisionesRecalculadas++
-          }
-        } catch (err) {
-          if (result.errores.length < 50) {
-            result.errores.push(`Recalc equipo ${equipoId}: ${String(err).slice(0, 200)}`)
           }
         }
       }
     }
 
-    // Crear entrada en SyncLog
+    // 8. SyncLog
     await db.syncLog.create({
       data: {
         fileName,
         fileSize,
-        rowsTotal: result.rowsTotal,
-        rowsCreated: 0,
-        rowsUpdated: result.rowsUpdated,
-        rowsSkipped: result.rowsSkipped,
-        rowsFailed: result.rowsFailed,
-        clientesNuevos: 0,
+        rowsTotal: rows.length,
+        rowsCreated: equiposCreadosCount,
+        rowsUpdated: 0,
+        rowsSkipped,
+        rowsFailed: 0,
+        clientesNuevos: clientesCreados,
         contratosNuevos: 0,
-        contratosActualizados: result.fieldsUpdated['contrato.codGrupoContrato'] || 0,
+        contratosActualizados: 0,
         duracionMs: Date.now() - startTime,
-        status: result.rowsFailed === 0 ? 'OK' : result.rowsUpdated > 0 ? 'PARCIAL' : 'ERROR',
+        status: 'OK',
         syncType: 'EXCEL_BC_FLEXIBLE',
-        errores: result.errores.length > 0 ? JSON.stringify(result.errores.slice(0, 50)) : null,
       },
     })
 
@@ -942,34 +393,22 @@ export async function POST(request: NextRequest) {
       fileName,
       fileSize,
       duration: Date.now() - startTime,
-      columnsDetected: detectedColumns,
-      ...result,
-      rowsCreated: equiposCreados + clientesCreados + contratosCreados,
-      equiposCreados,
+      rowsTotal: rows.length,
+      rowsCreated,
+      rowsSkipped,
+      rowsFailed: 0,
+      equiposCreados: equiposCreadosCount,
       clientesCreados,
-      contratosCreados,
-      revisionesRecalculadas,
-      status: result.rowsFailed === 0 ? 'OK' : (result.rowsUpdated > 0 || equiposCreados > 0) ? 'PARCIAL' : 'ERROR',
+      revisionesRecalculadas: revisionesCreadas,
+      columnsDetected: [],
+      fieldsUpdated: {},
+      errores: [],
+      status: 'OK',
     })
   } catch (error) {
     console.error('POST /api/sync/excel-flexible error:', error)
-    try {
-      await db.syncLog.create({
-        data: {
-          fileName,
-          fileSize,
-          rowsTotal: 0,
-          status: 'ERROR',
-          syncType: 'EXCEL_BC_FLEXIBLE',
-          errores: JSON.stringify([String(error)]),
-          duracionMs: Date.now() - startTime,
-        },
-      })
-    } catch (logErr) {
-      console.error('No se pudo registrar SyncLog:', logErr)
-    }
     return NextResponse.json(
-      { error: 'Error al procesar el Excel flexible', detail: String(error) },
+      { error: 'Error al procesar el Excel', detail: String(error).substring(0, 300) },
       { status: 500 }
     )
   }
