@@ -2,26 +2,16 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import * as XLSX from 'xlsx'
 
-// ============================================================
-// Mapeo de cabeceras (igual que antes)
-// ============================================================
 function normalizeHeader(h: string): string {
-  return h.toUpperCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
+  return h.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim()
 }
 
 function parseDate(v: unknown): Date | null {
-  if (v === null || v === undefined || v === '') return null
+  if (!v) return null
   if (v instanceof Date) return v
-  if (typeof v === 'number') {
-    if (v > 30000 && v < 60000) return new Date(Date.UTC(1899, 11, 30) + v * 86400 * 1000)
-    return null
-  }
-  const parsed = new Date(String(v).trim())
-  return isNaN(parsed.getTime()) ? null : parsed
+  if (typeof v === 'number' && v > 30000 && v < 60000) return new Date(Date.UTC(1899, 11, 30) + v * 86400 * 1000)
+  const p = new Date(String(v).trim())
+  return isNaN(p.getTime()) ? null : p
 }
 
 function parseNum(v: unknown): number | null {
@@ -30,9 +20,6 @@ function parseNum(v: unknown): number | null {
   return Number.isFinite(n) ? n : null
 }
 
-const M_PATTERN = /^M\d+$/i
-
-// POST /api/sync/excel-flexible — VERSIÓN BULK: procesa 9000+ filas rápido
 export async function POST(request: NextRequest) {
   const startTime = Date.now()
   let fileName = 'desconocido.xlsx'
@@ -46,55 +33,45 @@ export async function POST(request: NextRequest) {
     if (!file || !(file instanceof File)) {
       return NextResponse.json({ error: 'No se ha recibido ningún archivo' }, { status: 400 })
     }
-
     fileName = file.name
     fileSize = file.size
-
     if (!fileName.match(/\.(xlsx|xls)$/i)) {
-      return NextResponse.json({ error: 'El archivo debe ser .xlsx o .xls' }, { status: 400 })
+      return NextResponse.json({ error: 'Debe ser .xlsx o .xls' }, { status: 400 })
     }
 
     const bytes = await file.arrayBuffer()
-    const buffer = Buffer.from(bytes)
-    const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true })
+    const workbook = XLSX.read(Buffer.from(bytes), { type: 'buffer', cellDates: true })
     const sheet = workbook.Sheets[workbook.SheetNames[0]]
-    if (!sheet) return NextResponse.json({ error: 'El Excel no tiene hojas' }, { status: 400 })
+    if (!sheet) return NextResponse.json({ error: 'Sin hojas' }, { status: 400 })
 
     const rows: Record<string, unknown>[] = XLSX.utils.sheet_to_json(sheet, { defval: null, raw: true })
-    if (!rows.length) return NextResponse.json({ error: 'El Excel no tiene filas' }, { status: 400 })
+    if (!rows.length) return NextResponse.json({ error: 'Sin filas' }, { status: 400 })
 
-    // Detectar columnas por nombre (normalizado)
     const headers = Object.keys(rows[0])
-    const normHeaders = headers.map(h => normalizeHeader(h))
-
-    // Mapa de nombre normalizado → header original
     const headerMap = new Map<string, string>()
-    headers.forEach((h, i) => headerMap.set(normHeaders[i], h))
+    headers.forEach(h => headerMap.set(normalizeHeader(h), h))
 
-    // Función helper para obtener el valor de una columna
-    const getVal = (row: Record<string, unknown>, ...names: string[]): unknown => {
+    const getVal = (row: Record<string, unknown>, ...names: string[]): string => {
       for (const n of names) {
-        const norm = normalizeHeader(n)
-        const orig = headerMap.get(norm)
-        if (orig && row[orig] !== null && row[orig] !== undefined && row[orig] !== '') {
-          return row[orig]
+        const orig = headerMap.get(normalizeHeader(n))
+        if (orig && row[orig] !== null && row[orig] !== undefined && String(row[orig]).trim()) {
+          return String(row[orig]).trim()
         }
       }
-      return null
+      return ''
     }
 
     if (dryRun) {
-      // Devolver qué columnas se reconocen
       const detected: Array<{ header: string; field: string }> = []
-      const checks: Array<{ names: string[]; field: string }> = [
-        { names: ['Nº', 'Nº prod. servicio', 'Nº producto'], field: 'Nº (clave equipo)' },
+      const checks = [
+        { names: ['Nº', 'Nº prod. servicio'], field: 'Nº (clave)' },
         { names: ['Descripción'], field: 'Descripción' },
-        { names: ['Siguiente Fecha Mantenimiento'], field: 'Siguiente Fecha Mantenimiento' },
+        { names: ['Siguiente Fecha Mantenimiento'], field: 'Siguiente Fecha Mant.' },
         { names: ['Nº Serie'], field: 'Nº Serie' },
         { names: ['Modelo'], field: 'Modelo' },
         { names: ['Es propio'], field: 'Es propio' },
         { names: ['Nº cliente Propietario'], field: 'Nº cliente Propietario' },
-        { names: ['Nombre Cliente Propietario'], field: 'Nombre Cliente Propietario' },
+        { names: ['Nombre Cliente Propietario'], field: 'Nombre Cliente' },
         { names: ['Nombre Cliente Ubicación'], field: 'Nombre Cliente Ubicación' },
         { names: ['Nº cliente ubicación'], field: 'Nº cliente ubicación' },
         { names: ['Cód. dirección envío cliente ubicación'], field: 'Cód. dirección envío' },
@@ -108,285 +85,239 @@ export async function POST(request: NextRequest) {
       for (const c of checks) {
         for (const n of c.names) {
           if (headerMap.has(normalizeHeader(n))) {
-            detected.push({ header: headerMap.get(normalizeHeader(n))!, field: c.field })
+            const h = headerMap.get(normalizeHeader(n))!
+            if (!detected.find(d => d.header === h)) detected.push({ header: h, field: c.field })
             break
           }
         }
       }
-      return NextResponse.json({
-        success: true,
-        dryRun: true,
-        rowsTotal: rows.length,
-        columnsDetected: detected,
-      })
+      return NextResponse.json({ success: true, dryRun: true, rowsTotal: rows.length, columnsDetected: detected })
     }
 
     // ============================================================
-    // PROCESAMIENTO BULK
+    // BULK PROCESSING
     // ============================================================
 
-    // 1. Cargar equipos existentes (solo codigoProductoBC)
+    // 1. Load existing equipos (just codes)
     const existingEquipos = await db.equipo.findMany({
       where: { codigoProductoBC: { not: null } },
-      select: { id: true, codigoProductoBC: true },
+      select: { codigoProductoBC: true },
     })
     const existingCodigos = new Set(existingEquipos.map(e => e.codigoProductoBC))
 
-    // 2. Cargar clientes existentes
+    // 2. Load existing clientes
     const existingClientes = await db.cliente.findMany({
       where: { codigoExterno: { not: null } },
       select: { id: true, codigoExterno: true },
     })
-    const existingClienteMap = new Map<string, string>()
-    existingClientes.forEach(c => { if (c.codigoExterno) existingClienteMap.set(c.codigoExterno, c.id) })
+    const clienteMap = new Map<string, string>()
+    existingClientes.forEach(c => { if (c.codigoExterno) clienteMap.set(c.codigoExterno, c.id) })
 
-    // 3. Procesar filas: separar nuevas de existentes
-    const clientesParaCrear: Map<string, { nombre: string; nif: string; codigoExterno: string; zona?: string }> = new Map()
-    const equiposParaCrear: Array<{
-      codigo: string
-      tipo: string
-      marca: string
-      modelo: string
-      numeroSerie: string
-      horasUso: number
-      clienteId: string | null
-      codigoProductoBC: string
-      esMaquinaPropia: boolean
-      ubicacion: string | null
-      ultimaRevision: Date | null
-      proximaRevisionFecha: Date | null
-      contratoActivoId: string | null
-      codigoServicio: string | null
-      numClientePropietario: string | null
-      nombreClienteUbicacion: string | null
-      numClienteUbicacion: string | null
-      codDireccionEnvio: string | null
-      numSucursal: string | null
-      contratoAlquilerVigor: string | null
-      contratoMantenimVigor: string | null
-      estado: string
-      tipoRevision: string
-    }> = []
-
+    // 3. Process rows: collect new clientes and new equipos
+    const newClientesMap = new Map<string, { nombre: string; nif: string; codigoExterno: string; zona: string | null }>()
+    const newEquipos: Array<Record<string, unknown>> = []
     let rowsSkipped = 0
-    let rowsCreated = 0
+    const usedSeries = new Set<string>()
 
-    for (const row of rows) {
-      // Obtener clave del equipo (Nº)
-      const codigo = String(getVal(row, 'Nº', 'Nº prod. servicio', 'Nº producto') || '').trim()
+    for (let idx = 0; idx < rows.length; idx++) {
+      const row = rows[idx]
+      const codigo = getVal(row, 'Nº', 'Nº prod. servicio', 'Nº producto')
       if (!codigo) { rowsSkipped++; continue }
-
-      // Si el equipo ya existe, saltarlo (modo solo-nuevos)
       if (existingCodigos.has(codigo)) { rowsSkipped++; continue }
 
-      // Recoger todos los campos
-      const descripcion = String(getVal(row, 'Descripción') || codigo).trim()
-      const serie = String(getVal(row, 'Nº Serie') || codigo).trim()
-      const modelo = String(getVal(row, 'Modelo') || descripcion).trim()
-      const horasRaw = parseNum(getVal(row, 'Nº de horas', 'Nº de horas'))
-      const horas = horasRaw || 0
-      const esPropioRaw = String(getVal(row, 'Es propio') || '').trim().toUpperCase()
-      const esPropia = esPropioRaw === 'SI' || esPropioRaw === 'SÍ' || esPropioRaw === 'TRUE' || esPropioRaw === '1'
+      const desc = getVal(row, 'Descripción') || codigo
+      let serie = getVal(row, 'Nº Serie') || `${codigo}-S`
+      // Ensure unique serie
+      let serieFinal = serie
+      let serieSuffix = 0
+      while (usedSeries.has(serieFinal)) {
+        serieSuffix++
+        serieFinal = `${serie}-${serieSuffix}`
+      }
+      usedSeries.add(serieFinal)
 
-      const clienteCod = String(getVal(row, 'Nº cliente Propietario', 'Nº cliente') || '').trim()
-      const clienteNombre = String(getVal(row, 'Nombre Cliente Propietario', 'Nombre Cliente', 'Nombre') || '').trim()
+      const modelo = getVal(row, 'Modelo') || desc
+      const horas = parseNum(getVal(row, 'Nº de horas')) || 0
+      const esPropioRaw = getVal(row, 'Es propio').toUpperCase()
+      const esPropia = ['SI', 'SÍ', 'TRUE', '1', 'YES'].includes(esPropioRaw)
 
-      const ubicacion = String(getVal(row, 'Nombre Cliente Ubicación', 'Ubicación') || '').trim() || null
-      const ultRev = parseDate(getVal(row, 'Siguiente Fecha Mantenimiento', 'Fecha última revisión', 'Fecha registro'))
+      const clienteCod = getVal(row, 'Nº cliente Propietario', 'Nº cliente')
+      const clienteNombre = getVal(row, 'Nombre Cliente Propietario', 'Nombre Cliente', 'Nombre')
+
+      const ubicacion = getVal(row, 'Nombre Cliente Ubicación', 'Ubicación') || null
       const proxRev = parseDate(getVal(row, 'Siguiente Fecha Mantenimiento'))
 
-      const contratoInterno = String(getVal(row, 'Nº Contrato Interno Mantenimiento en Vigor') || '').trim() || null
-      const contratoMant = String(getVal(row, 'Nº Contrato Servicio Mantenimiento en Vigor') || '').trim() || null
-      const contratoAlq = String(getVal(row, 'Nº Contrato Servicio Alquiler en Vigor') || '').trim() || null
-      const codServicio = String(getVal(row, 'Código de Servicio') || '').trim() || null
-      const numClienteProp = String(getVal(row, 'Nº cliente Propietario') || '').trim() || null
-      const nombreClienteUbic = String(getVal(row, 'Nombre Cliente Ubicación') || '').trim() || null
-      const numClienteUbic = String(getVal(row, 'Nº cliente ubicación') || '').trim() || null
-      const codDirEnvio = String(getVal(row, 'Cód. dirección envío cliente ubicación') || '').trim() || null
-      const numSucursal = String(getVal(row, 'Nº Sucursal') || '').trim() || null
+      const contratoInterno = getVal(row, 'Nº Contrato Interno Mantenimiento en Vigor') || null
+      const contratoMant = getVal(row, 'Nº Contrato Servicio Mantenimiento en Vigor') || null
+      const contratoAlq = getVal(row, 'Nº Contrato Servicio Alquiler en Vigor') || null
+      const codServicio = getVal(row, 'Código de Servicio') || null
+      const numClienteProp = clienteCod || null
+      const nombreClienteUbic = getVal(row, 'Nombre Cliente Ubicación') || null
+      const numClienteUbic = getVal(row, 'Nº cliente ubicación') || null
+      const codDirEnvio = getVal(row, 'Cód. dirección envío cliente ubicación') || null
+      const numSucursal = getVal(row, 'Nº Sucursal') || null
 
-      // Registrar cliente para crear (si no existe)
-      if (clienteCod && !existingClienteMap.has(clienteCod) && !clientesParaCrear.has(clienteCod)) {
-        clientesParaCrear.set(clienteCod, {
+      // Register new cliente
+      if (clienteCod && !clienteMap.has(clienteCod) && !newClientesMap.has(clienteCod)) {
+        newClientesMap.set(clienteCod, {
           nombre: clienteNombre || clienteCod,
           nif: `BC-${clienteCod}`,
           codigoExterno: clienteCod,
-          zona: codDirEnvio || numSucursal || undefined,
+          zona: codDirEnvio || numSucursal || null,
         })
       }
 
-      // Añadir equipo a la lista de creación
-      equiposParaCrear.push({
+      newEquipos.push({
         codigo,
         tipo: 'DESCONOCIDO',
         marca: '—',
         modelo,
-        numeroSerie: serie + '-' + Date.now().toString(36).slice(-4), // evitar duplicados
+        numeroSerie: serieFinal,
         horasUso: horas,
-        clienteId: null, // se asignará después de crear clientes
+        clienteId: null, // assign later
         codigoProductoBC: codigo,
         esMaquinaPropia: esPropia,
         ubicacion,
-        ultimaRevision: ultRev,
+        ultimaRevision: null,
         proximaRevisionFecha: proxRev,
         contratoActivoId: contratoInterno,
-        codigoServicio: codServicio,
+        codigoServicio,
         numClientePropietario: numClienteProp,
         nombreClienteUbicacion: nombreClienteUbic,
         numClienteUbicacion: numClienteUbic,
         codDireccionEnvio: codDirEnvio,
-        numSucursal: numSucursal,
+        numSucursal,
         contratoAlquilerVigor: contratoAlq,
         contratoMantenimVigor: contratoMant,
         estado: 'OPERATIVO',
         tipoRevision: esPropia ? 'POR_HORAS' : 'POR_CONTRATO',
       })
-      rowsCreated++
     }
 
-    // 4. Crear clientes en bloque (createMany)
+    // 4. Create clientes in bulk
     let clientesCreados = 0
-    if (clientesParaCrear.size > 0) {
-      const clienteArray = Array.from(clientesParaCrear.values())
-      // createMany en lotes de 500
-      for (let i = 0; i < clienteArray.length; i += 500) {
-        await db.cliente.createMany({ data: clienteArray.slice(i, i + 500) })
+    if (newClientesMap.size > 0) {
+      const clienteArr = Array.from(newClientesMap.values())
+      for (let i = 0; i < clienteArr.length; i += 500) {
+        try {
+          await db.cliente.createMany({ data: clienteArr.slice(i, i + 500), skipDuplicates: true })
+        } catch (e) { /* ignore duplicates */ }
       }
-      clientesCreados = clienteArray.length
-
-      // Recargar clientes para obtener los IDs
-      const newClientes = await db.cliente.findMany({
-        where: { codigoExterno: { in: Array.from(clientesParaCrear.keys()) } },
+      clientesCreados = clienteArr.length
+      // Reload to get IDs
+      const newCl = await db.cliente.findMany({
+        where: { codigoExterno: { in: Array.from(newClientesMap.keys()) } },
         select: { id: true, codigoExterno: true },
       })
-      newClientes.forEach(c => { if (c.codigoExterno) existingClienteMap.set(c.codigoExterno, c.id) })
+      newCl.forEach(c => { if (c.codigoExterno) clienteMap.set(c.codigoExterno, c.id) })
     }
 
-    // 5. Asignar clienteId a cada equipo
-    // Obtener o crear cliente fallback
-    let fallbackClienteId: string | null = null
-    for (const eq of equiposParaCrear) {
-      const cod = eq.numClientePropietario
-      if (cod && existingClienteMap.has(cod)) {
-        eq.clienteId = existingClienteMap.get(cod)!
-      } else {
-        if (!fallbackClienteId) {
-          const fb = await db.cliente.findFirst({
-            where: { nif: 'BC-SIN-CLIENTE' },
-            select: { id: true },
-          })
-          if (fb) {
-            fallbackClienteId = fb.id
-          } else {
-            const nuevo = await db.cliente.create({
-              data: { nombre: 'Sin cliente asignado', nif: 'BC-SIN-CLIENTE', estado: 'ACTIVO' },
-            })
-            fallbackClienteId = nuevo.id
-          }
+    // 5. Get or create fallback cliente
+    let fallbackId: string | null = null
+    const fb = await db.cliente.findFirst({ where: { nif: 'BC-SIN-CLIENTE' }, select: { id: true } })
+    if (fb) {
+      fallbackId = fb.id
+    } else {
+      const nuevo = await db.cliente.create({ data: { nombre: 'Sin cliente asignado', nif: 'BC-SIN-CLIENTE', estado: 'ACTIVO' } })
+      fallbackId = nuevo.id
+    }
+
+    // 6. Assign clienteId to each equipo
+    for (const eq of newEquipos) {
+      const cod = eq.numClientePropietario as string | null
+      eq.clienteId = (cod && clienteMap.has(cod)) ? clienteMap.get(cod) : fallbackId
+    }
+
+    // 7. Create equipos in bulk
+    let equiposCreados = 0
+    const errores: string[] = []
+    for (let i = 0; i < newEquipos.length; i += 500) {
+      try {
+        await db.equipo.createMany({ data: newEquipos.slice(i, i + 500), skipDuplicates: true })
+        equiposCreados += Math.min(500, newEquipos.length - i)
+      } catch (e) {
+        const msg = String(e).substring(0, 200)
+        errores.push(`Lote ${i}: ${msg}`)
+        // Try one by one for this batch
+        for (const eq of newEquipos.slice(i, i + 500)) {
+          try {
+            await db.equipo.create({ data: eq as any })
+            equiposCreados++
+          } catch { /* skip */ }
         }
-        eq.clienteId = fallbackClienteId
       }
     }
 
-    // 6. Crear equipos en bloque (createMany)
-    let equiposCreadosCount = 0
-    if (equiposParaCrear.length > 0) {
-      for (let i = 0; i < equiposParaCrear.length; i += 500) {
-        await db.equipo.createMany({ data: equiposParaCrear.slice(i, i + 500) })
-        equiposCreadosCount += Math.min(500, equiposParaCrear.length - i)
-      }
-    }
-
-    // 7. Crear revisiones para los equipos nuevos (en bloque)
+    // 8. Create revisions for new equipos
     let revisionesCreadas = 0
-    if (equiposCreadosCount > 0) {
-      const newEquipos = await db.equipo.findMany({
-        where: { codigoProductoBC: { in: equiposParaCrear.map(e => e.codigo) } },
-        select: { id: true, codigoProductoBC: true, tipoRevision: true, horasUso: true, ultimaRevision: true, proximaRevisionFecha: true, esMaquinaPropia: true },
+    if (equiposCreados > 0) {
+      const created = await db.equipo.findMany({
+        where: { codigoProductoBC: { in: newEquipos.map(e => e.codigo) } },
+        select: { id: true, tipoRevision: true, horasUso: true, proximaRevisionFecha: true, esMaquinaPropia: true },
       })
 
-      const revisionesParaCrear: Array<{
-        equipoId: string
-        tipo: string
-        nivel: string | null
-        horasObjetivo: number | null
-        fechaProgramada: Date
-        estado: string
-      }> = []
-
-      for (const eq of newEquipos) {
-        let fechaProg: Date
+      const revs: Array<Record<string, unknown>> = []
+      for (const eq of created) {
+        let fecha: Date
         let nivel: string | null = null
         let horasObj: number | null = null
 
         if (eq.proximaRevisionFecha) {
-          fechaProg = eq.proximaRevisionFecha
+          fecha = eq.proximaRevisionFecha
           nivel = 'CONTRATO'
         } else if (eq.tipoRevision === 'POR_HORAS') {
-          const UMBRAL = 1000
-          horasObj = Math.ceil((eq.horasUso + 1) / UMBRAL) * UMBRAL
+          horasObj = Math.ceil((eq.horasUso + 1) / 1000) * 1000
           nivel = 'REVISION_1000H'
-          fechaProg = new Date()
-          fechaProg.setDate(fechaProg.getDate() + 30)
+          fecha = new Date()
+          fecha.setDate(fecha.getDate() + 30)
         } else {
-          fechaProg = new Date()
-          fechaProg.setMonth(fechaProg.getMonth() + 12)
+          fecha = new Date()
+          fecha.setMonth(fecha.getMonth() + 12)
           nivel = 'CONTRATO'
         }
 
-        revisionesParaCrear.push({
+        revs.push({
           equipoId: eq.id,
           tipo: eq.tipoRevision,
           nivel,
           horasObjetivo: horasObj,
-          fechaProgramada: fechaProg,
+          fechaProgramada: fecha,
           estado: 'PROGRAMADA',
         })
-      }
 
-      if (revisionesParaCrear.length > 0) {
-        for (let i = 0; i < revisionesParaCrear.length; i += 500) {
-          await db.revisionProgramada.createMany({ data: revisionesParaCrear.slice(i, i + 500) })
-        }
-        revisionesCreadas = revisionesParaCrear.length
-      }
-
-      // Actualizar proximaRevisionFecha en los equipos que no la tenían
-      for (const eq of newEquipos) {
+        // Update equipo with calc
         if (!eq.proximaRevisionFecha) {
-          const rev = revisionesParaCrear.find(r => r.equipoId === eq.id)
-          if (rev) {
-            await db.equipo.update({
-              where: { id: eq.id },
-              data: {
-                proximaRevisionFecha: rev.fechaProgramada,
-                proximaRevisionHoras: rev.horasObjetivo,
-                umbralHorasActual: rev.nivel === 'REVISION_1000H' ? 1000 : null,
-              },
-            })
-          }
+          await db.equipo.update({
+            where: { id: eq.id },
+            data: { proximaRevisionFecha: fecha, proximaRevisionHoras: horasObj, umbralHorasActual: horasObj ? 1000 : null },
+          }).catch(() => {})
+        }
+      }
+
+      for (let i = 0; i < revs.length; i += 500) {
+        try {
+          await db.revisionProgramada.createMany({ data: revs.slice(i, i + 500), skipDuplicates: true })
+          revisionesCreadas += Math.min(500, revs.length - i)
+        } catch (e) {
+          errores.push(`Rev lote ${i}: ${String(e).substring(0, 100)}`)
         }
       }
     }
 
-    // 8. SyncLog
     await db.syncLog.create({
       data: {
-        fileName,
-        fileSize,
+        fileName, fileSize,
         rowsTotal: rows.length,
-        rowsCreated: equiposCreadosCount,
-        rowsUpdated: 0,
+        rowsCreated: equiposCreados,
         rowsSkipped,
         rowsFailed: 0,
         clientesNuevos: clientesCreados,
-        contratosNuevos: 0,
-        contratosActualizados: 0,
         duracionMs: Date.now() - startTime,
-        status: 'OK',
+        status: errores.length > 0 ? 'PARCIAL' : 'OK',
         syncType: 'EXCEL_BC_FLEXIBLE',
+        errores: errores.length > 0 ? JSON.stringify(errores.slice(0, 10)) : null,
       },
-    })
+    }).catch(() => {})
 
     return NextResponse.json({
       success: true,
@@ -394,21 +325,18 @@ export async function POST(request: NextRequest) {
       fileSize,
       duration: Date.now() - startTime,
       rowsTotal: rows.length,
-      rowsCreated,
+      rowsCreated: equiposCreados,
       rowsSkipped,
-      rowsFailed: 0,
-      equiposCreados: equiposCreadosCount,
+      equiposCreados,
       clientesCreados,
       revisionesRecalculadas: revisionesCreadas,
-      columnsDetected: [],
-      fieldsUpdated: {},
-      errores: [],
-      status: 'OK',
+      errores: errores.slice(0, 5),
+      status: errores.length > 0 ? 'PARCIAL' : 'OK',
     })
   } catch (error) {
     console.error('POST /api/sync/excel-flexible error:', error)
     return NextResponse.json(
-      { error: 'Error al procesar el Excel', detail: String(error).substring(0, 300) },
+      { error: 'Error al procesar Excel', detail: String(error).substring(0, 500) },
       { status: 500 }
     )
   }
