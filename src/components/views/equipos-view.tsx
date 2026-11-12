@@ -434,21 +434,116 @@ export function EquiposView() {
               </p>
             </div>
           ) : (
-            <div className="overflow-auto scrollbar-thin" style={{ maxHeight: 'calc(100vh - 200px)' }}>
+            <div className="overflow-auto scrollbar-thin relative" style={{ maxHeight: 'calc(100vh - 200px)' }}>
               <Table>
                 <TableHeader>
-                  <TableRow className="bg-muted/40 hover:bg-muted/40">
-                    <TableHead className="min-w-[100px]">Nº</TableHead>
-                    <TableHead className="min-w-[120px]">Descripción</TableHead>
-                    <TableHead className="min-w-[120px]">Nº Serie</TableHead>
-                    <TableHead className="min-w-[140px]">Modelo</TableHead>
-                    <TableHead className="min-w-[80px] text-center">Es propio</TableHead>
-                    <TableHead className="min-w-[160px]">Cliente</TableHead>
-                    <TableHead className="min-w-[120px]">Ubicación</TableHead>
-                    <TableHead className="text-center min-w-[80px]">Horas</TableHead>
-                    <TableHead className="min-w-[110px]">Próx. revisión</TableHead>
-                    <TableHead className="min-w-[120px]">Contrato</TableHead>
-                    <TableHead className="text-center">Estado</TableHead>
+                  <TableRow className="bg-muted/60 hover:bg-muted/60 sticky top-0 z-10">
+                    <TableHead className="min-w-[90px]">
+                      Nº
+                      <Input
+                        value={colFilters.codigo || ''}
+                        onChange={(e) => updateFilter('codigo', e.target.value)}
+                        placeholder="Filtrar..."
+                        className="h-6 mt-1 text-[11px]"
+                      />
+                    </TableHead>
+                    <TableHead className="min-w-[110px]">
+                      Descripción
+                      <Input
+                        value={colFilters.modelo || ''}
+                        onChange={(e) => updateFilter('modelo', e.target.value)}
+                        placeholder="Filtrar..."
+                        className="h-6 mt-1 text-[11px]"
+                      />
+                    </TableHead>
+                    <TableHead className="min-w-[110px]">
+                      Nº Serie
+                      <Input
+                        value={colFilters.numeroSerie || ''}
+                        onChange={(e) => updateFilter('numeroSerie', e.target.value)}
+                        placeholder="Filtrar..."
+                        className="h-6 mt-1 text-[11px]"
+                      />
+                    </TableHead>
+                    <TableHead className="min-w-[110px]">
+                      Modelo
+                      <Input
+                        value={colFilters.marcaModelo || ''}
+                        onChange={(e) => updateFilter('marcaModelo', e.target.value)}
+                        placeholder="Filtrar..."
+                        className="h-6 mt-1 text-[11px]"
+                      />
+                    </TableHead>
+                    <TableHead className="min-w-[80px] text-center">
+                      Es propio
+                      <select
+                        value={colFilters.esPropio || ''}
+                        onChange={(e) => updateFilter('esPropio', e.target.value)}
+                        className="h-6 mt-1 text-[11px] w-full rounded border border-input bg-background px-1"
+                      >
+                        <option value="">Todos</option>
+                        <option value="Sí">Sí</option>
+                        <option value="No">No</option>
+                      </select>
+                    </TableHead>
+                    <TableHead className="min-w-[140px]">
+                      Cliente
+                      <Input
+                        value={colFilters.cliente || ''}
+                        onChange={(e) => updateFilter('cliente', e.target.value)}
+                        placeholder="Filtrar..."
+                        className="h-6 mt-1 text-[11px]"
+                      />
+                    </TableHead>
+                    <TableHead className="min-w-[100px]">
+                      Ubicación
+                      <Input
+                        value={colFilters.ubicacion || ''}
+                        onChange={(e) => updateFilter('ubicacion', e.target.value)}
+                        placeholder="Filtrar..."
+                        className="h-6 mt-1 text-[11px]"
+                      />
+                    </TableHead>
+                    <TableHead className="text-center min-w-[70px]">
+                      Horas
+                      <Input
+                        value={colFilters.horasUso || ''}
+                        onChange={(e) => updateFilter('horasUso', e.target.value)}
+                        placeholder="Filtrar..."
+                        className="h-6 mt-1 text-[11px]"
+                      />
+                    </TableHead>
+                    <TableHead className="min-w-[100px]">
+                      Próx. rev.
+                      <Input
+                        value={colFilters.proximaRevision || ''}
+                        onChange={(e) => updateFilter('proximaRevision', e.target.value)}
+                        placeholder="Filtrar..."
+                        className="h-6 mt-1 text-[11px]"
+                      />
+                    </TableHead>
+                    <TableHead className="min-w-[100px]">
+                      Contrato
+                      <Input
+                        value={colFilters.contrato || ''}
+                        onChange={(e) => updateFilter('contrato', e.target.value)}
+                        placeholder="Filtrar..."
+                        className="h-6 mt-1 text-[11px]"
+                      />
+                    </TableHead>
+                    <TableHead className="text-center min-w-[90px]">
+                      Estado
+                      <select
+                        value={colFilters.estado || ''}
+                        onChange={(e) => updateFilter('estado', e.target.value)}
+                        className="h-6 mt-1 text-[11px] w-full rounded border border-input bg-background px-1"
+                      >
+                        <option value="">Todos</option>
+                        <option value="OPERATIVO">Operativo</option>
+                        <option value="EN_MANTENIMIENTO">En mant.</option>
+                        <option value="FUERA_SERVICIO">Fuera serv.</option>
+                      </select>
+                    </TableHead>
                     <TableHead className="text-right pr-6">Acciones</TableHead>
                   </TableRow>
                 </TableHeader>
