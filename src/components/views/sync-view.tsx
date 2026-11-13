@@ -125,11 +125,29 @@ export function SyncView() {
 
   const { data: status, loading, error, refetch: refetchStatus } = useFetch<SyncStatus>('/api/sync')
   const { data: logs, refetch: refetchLogs } = useFetch<SyncLogEntry[]>('/api/sync/log?limit=20')
+  const { data: rutina, refetch: refetchRutina } = useFetch<{
+    pasos: Array<{
+      id: string
+      num: number
+      titulo: string
+      descripcion: string
+      excelType: 'contratos' | 'equipos' | 'lineas' | 'revisiones' | 'flexible' | null
+      completado: boolean
+      count: number
+      fechaUltima: string | null
+      esRecalc?: boolean
+    }>
+    totalPasos: number
+    pasosCompletados: number
+    siguientePendiente: string | null
+    progreso: number
+  }>('/api/sync/estado-rutina')
 
   const refetchAll = useCallback(() => {
     refetchStatus()
     refetchLogs()
-  }, [refetchStatus, refetchLogs])
+    refetchRutina()
+  }, [refetchStatus, refetchLogs, refetchRutina])
 
   const handleFileSelect = (file: File) => {
     if (!file.name.match(/\.(xlsx|xls)$/i)) {
@@ -498,6 +516,139 @@ export function SyncView() {
           )}
         </CardContent>
       </Card>
+
+      {/* Rutina de sincronización — checklist guiado */}
+      {rutina && (
+        <Card className="border-2 border-primary/20">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base font-semibold flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-primary" />
+              Rutina de sincronización
+              <span className="ml-auto text-[12px] font-normal text-muted-foreground">
+                {rutina.pasosCompletados} de {rutina.totalPasos} pasos · {rutina.progreso}%
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0">
+            {/* Barra de progreso */}
+            <div className="h-2 bg-muted rounded-full overflow-hidden mb-4">
+              <div
+                className="h-full bg-primary transition-all duration-500"
+                style={{ width: `${rutina.progreso}%` }}
+              />
+            </div>
+
+            {/* Pasos */}
+            <div className="space-y-2">
+              {rutina.pasos.map((paso) => {
+                const esSiguiente = rutina.siguientePendiente === paso.id
+                const esActual = paso.excelType === excelType && !paso.completado
+                return (
+                  <button
+                    key={paso.id}
+                    type="button"
+                    onClick={() => {
+                      if (paso.esRecalc) {
+                        // Disparar recalc directamente
+                        handleRecalc()
+                      } else if (paso.excelType) {
+                        setExcelType(paso.excelType)
+                        setSelectedFile(null)
+                        setPreviewResult(null)
+                        // Scroll al área de upload
+                        setTimeout(() => {
+                          fileInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                        }, 100)
+                      }
+                    }}
+                    className={cn(
+                      'w-full flex items-center gap-3 p-3 rounded-lg border transition-all text-left',
+                      paso.completado
+                        ? 'border-emerald-200 bg-emerald-50/50'
+                        : esSiguiente
+                          ? 'border-primary bg-primary/5 ring-1 ring-primary/20'
+                          : 'border-border hover:border-primary/30 hover:bg-muted/30',
+                    )}
+                  >
+                    {/* Indicador circular */}
+                    <div
+                      className={cn(
+                        'shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-[12px] font-bold',
+                        paso.completado
+                          ? 'bg-emerald-500 text-white'
+                          : esSiguiente
+                            ? 'bg-primary text-primary-foreground'
+                            : 'bg-muted text-muted-foreground',
+                      )}
+                    >
+                      {paso.completado ? (
+                        <CheckCircle2 className="w-4 h-4" />
+                      ) : (
+                        paso.num
+                      )}
+                    </div>
+
+                    {/* Contenido */}
+                    <div className="flex-1 min-w-0">
+                      <p
+                        className={cn(
+                          'text-[13px] font-medium truncate',
+                          paso.completado ? 'text-emerald-900' : 'text-foreground',
+                        )}
+                      >
+                        {paso.titulo}
+                        {esSiguiente && (
+                          <span className="ml-2 text-[10px] text-primary font-semibold uppercase tracking-wider">
+                            ← siguiente
+                          </span>
+                        )}
+                        {esActual && (
+                          <span className="ml-2 text-[10px] text-primary font-semibold uppercase tracking-wider">
+                            ← subiendo ahora
+                          </span>
+                        )}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground truncate">
+                        {paso.descripcion}
+                      </p>
+                    </div>
+
+                    {/* Estado + count */}
+                    <div className="shrink-0 text-right">
+                      {paso.completado ? (
+                        <>
+                          <p className="text-[12px] font-semibold text-emerald-700 tabular-nums">
+                            {paso.count.toLocaleString('es-ES')}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground">
+                            {paso.fechaUltima
+                              ? new Date(paso.fechaUltima).toLocaleDateString('es-ES', {
+                                  day: '2-digit',
+                                  month: 'short',
+                                })
+                              : ''}
+                          </p>
+                        </>
+                      ) : (
+                        <p className="text-[11px] text-muted-foreground italic">pendiente</p>
+                      )}
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+
+            {rutina.pasosCompletados === rutina.totalPasos && (
+              <div className="mt-3 p-3 bg-emerald-50 border border-emerald-200 rounded-md flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                <p className="text-[12px] text-emerald-900 font-medium">
+                  ¡Rutina completada! Todos los datos están sincronizados.
+                </p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Subir Excel */}
       <Card>
