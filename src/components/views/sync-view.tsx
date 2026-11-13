@@ -2,7 +2,7 @@
 
 import React, { useState, useRef } from 'react';
 import * as XLSX from 'xlsx';
-import { Upload, FileSpreadsheet, CheckCircle2, AlertCircle, X } from 'lucide-react';
+import { Upload, FileSpreadsheet, CheckCircle2, AlertCircle } from 'lucide-react';
 
 export function SyncView() {
   const [loading, setLoading] = useState(false);
@@ -27,15 +27,16 @@ export function SyncView() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Función para clasificar automáticamente los ficheros según su nombre
+  // Función mejorada para clasificar automáticamente los ficheros según sus nombres típicos
   const classifyFiles = (fileList: FileList | File[]) => {
     const newFiles = { ...files };
 
     Array.from(fileList).forEach(file => {
       const name = file.name.toLowerCase();
-      if (name.includes('revision') || name.includes('rev')) {
+      
+      if (name.includes('revision') || name.includes('rev') || name.includes('ppi')) {
         newFiles.revisiones = file;
-      } else if (name.includes('producto') || name.includes('prod')) {
+      } else if (name.includes('producto') || name.includes('prod') || name.includes('servicio')) {
         newFiles.productos = file;
       } else if (name.includes('contrato') || name.includes('líneas') || name.includes('lineas')) {
         newFiles.lineasContrato = file;
@@ -74,6 +75,8 @@ export function SyncView() {
           const sheetName = workbook.SheetNames[0];
           const sheet = workbook.Sheets[sheetName];
           const data = XLSX.utils.sheet_to_json(sheet) as any[];
+          
+          console.log(`📄 Fichero [${file.name}]: ${data.length} filas leídas. Columnas detectadas:`, data[0] ? Object.keys(data[0]) : 'Ninguna');
           resolve(data);
         } catch (error) {
           reject(error);
@@ -96,7 +99,7 @@ export function SyncView() {
     setIsError(false);
 
     try {
-      console.group('📤 [Sincronización Local Masiva] Procesando ficheros');
+      console.group('📤 [Sincronización Local Masiva] Procesando ficheros...');
       const revData = await readFileAsJSON(files.revisiones);
       const prodData = await readFileAsJSON(files.productos);
       const lineasContratoData = await readFileAsJSON(files.lineasContrato);
@@ -104,18 +107,27 @@ export function SyncView() {
       const pedidosRegData = await readFileAsJSON(files.pedidosReg);
       console.groupEnd();
 
+      if (revData.length === 0) {
+        throw new Error("El fichero de Revisiones está vacío o no se pudo leer la primera hoja correctamente.");
+      }
+
       // Cruce y fusión de datos
       const planificacionMap = new Map();
 
       revData.forEach((item, index) => {
-        const key = `${item['Nº prod. servicio'] || index}_${item['Nº Contrato'] || 'N/A'}`;
+        // Buscamos claves flexibles para adaptarnos a variaciones de nombres de columnas
+        const prodServicio = item['Nº prod. servicio'] || item['Nº Prod. Servicio'] || item['No. Prod. Servicio'] || index;
+        const contrato = item['Nº Contrato'] || item['No. Contrato'] || 'N/A';
+        const key = `${prodServicio}_${contrato}`;
         planificacionMap.set(key, { ...item, fuente: 'Revisiones' });
       });
 
       prodData.forEach((prod) => {
-        const serie = String(prod['Nº Serie'] || '');
+        const serie = String(prod['Nº Serie'] || prod['No. Serie'] || prod['Nº de serie'] || '');
+        if (!serie) return;
+        
         for (const [key, value] of planificacionMap.entries()) {
-          if (key.startsWith(serie)) {
+          if (key.includes(serie) || key.startsWith(serie)) {
             planificacionMap.set(key, { ...value, ...prod });
           }
         }
@@ -124,10 +136,10 @@ export function SyncView() {
       const resultadoFinal = Array.from(planificacionMap.values());
 
       localStorage.setItem('mantenim_planificacion_data', JSON.stringify(resultadoFinal));
-      console.log(`✅ Guardados ${resultadoFinal.length} registros en localStorage.`);
+      console.log(`✅ Guardados con éxito ${resultadoFinal.length} registros en localStorage.`);
 
       setIsError(false);
-      setResultMessage(`¡Éxito! Se han procesado ${resultadoFinal.length} registros localmente. Ya puedes consultar la sección de Revisiones.`);
+      setResultMessage(`¡Éxito! Se han procesado y cruzado ${resultadoFinal.length} registros localmente. Ya puedes consultar la sección de Revisiones/Planificación.`);
     } catch (error: any) {
       setIsError(true);
       console.error('🔥 Error procesando excels:', error);
@@ -150,7 +162,7 @@ export function SyncView() {
         <div>
           <h3 className="text-lg font-semibold mb-1">Arrastra tus 5 excels de Business Central aquí</h3>
           <p className="text-sm text-muted-foreground">
-            Suelta los archivos de golpe en el cuadro inferior. La aplicación los reconocerá y ordenará automáticamente por su nombre.
+            Suelta los archivos de golpe en el cuadro inferior. La aplicación los reconocerá y ordenará automáticamente.
           </p>
         </div>
 
