@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Search, ArrowUpDown, ChevronUp, ChevronDown } from 'lucide-react';
+import { Search, ArrowUpDown, ChevronUp, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 
 export function RevisionesView() {
   const [items, setItems] = useState<any[]>([]);
@@ -11,6 +11,10 @@ export function RevisionesView() {
   // Estados para la ordenación
   const [sortField, setSortField] = useState<string>('Nº Serie');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+
+  // Estados para la paginación
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 15;
 
   useEffect(() => {
     const saved = localStorage.getItem('mantenim_planificacion_data');
@@ -22,6 +26,11 @@ export function RevisionesView() {
       }
     }
   }, []);
+
+  // Reiniciar a la página 1 cuando cambia la búsqueda o el filtro
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, selectedClient]);
 
   // Extraer lista única de clientes para el filtro avanzado
   const uniqueClients = useMemo(() => {
@@ -62,7 +71,6 @@ export function RevisionesView() {
       let valA = a[sortField] || '';
       let valB = b[sortField] || '';
 
-      // Conversión numérica si es el campo de horas
       if (sortField === 'Nº de horas') {
         valA = Number(valA) || 0;
         valB = Number(valB) || 0;
@@ -76,6 +84,14 @@ export function RevisionesView() {
       return 0;
     });
   }, [items, searchTerm, selectedClient, sortField, sortDirection]);
+
+  // Paginación de los datos filtrados y ordenados
+  const totalPages = Math.ceil(filteredAndSortedItems.length / itemsPerPage);
+  
+  const paginatedItems = useMemo(() => {
+    const start = (currentPage - 1) * itemsPerPage;
+    return filteredAndSortedItems.slice(start, start + itemsPerPage);
+  }, [filteredAndSortedItems, currentPage]);
 
   const handleSort = (field: string) => {
     if (sortField === field) {
@@ -104,7 +120,7 @@ export function RevisionesView() {
         </div>
         <div className="flex items-center gap-3">
           <div className="text-sm font-medium bg-muted px-3 py-1.5 rounded border">
-            Mostrando: <span className="font-bold">{filteredAndSortedItems.length}</span> de {items.length} registros
+            Mostrando <span className="font-bold">{paginatedItems.length}</span> de <span className="font-bold">{filteredAndSortedItems.length}</span> filtrados ({items.length} total)
           </div>
         </div>
       </div>
@@ -154,8 +170,8 @@ export function RevisionesView() {
           </button>
         </div>
       ) : (
-        <div className="border rounded-lg bg-card overflow-hidden shadow-sm">
-          <div className="overflow-x-auto">
+        <div className="border rounded-lg bg-card overflow-hidden shadow-sm flex flex-col">
+          <div className="overflow-x-auto flex-1">
             <table className="w-full text-left text-sm">
               <thead className="bg-muted border-b text-muted-foreground font-semibold">
                 <tr>
@@ -210,7 +226,7 @@ export function RevisionesView() {
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {filteredAndSortedItems.map((row, idx) => (
+                {paginatedItems.map((row, idx) => (
                   <tr key={idx} className="hover:bg-muted/50 transition-colors">
                     <td className="p-3 font-medium">{row['Nº Serie'] || row['Nº prod. servicio'] || 'N/A'}</td>
                     <td className="p-3">{row['Modelo'] || 'N/A'}</td>
@@ -222,6 +238,31 @@ export function RevisionesView() {
                 ))}
               </tbody>
             </table>
+          </div>
+
+          {/* Barra de Paginación Inferior */}
+          <div className="flex items-center justify-between px-4 py-3 border-t bg-muted/20 text-sm">
+            <span className="text-muted-foreground text-xs sm:text-sm">
+              Página <span className="font-semibold text-foreground">{currentPage}</span> de <span className="font-semibold text-foreground">{totalPages || 1}</span>
+            </span>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                disabled={currentPage === 1}
+                className="px-3 py-1.5 border rounded text-xs font-medium bg-background hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+              >
+                <ChevronLeft className="w-4 h-4" /> Anterior
+              </button>
+              
+              <button
+                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                disabled={currentPage >= totalPages}
+                className="px-3 py-1.5 border rounded text-xs font-medium bg-background hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+              >
+                Siguiente <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         </div>
       )}
