@@ -31,7 +31,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { EstadoBadge } from '@/components/shared/estado-badge'
-import { EquiposContratoSheet } from '@/components/shared/equipos-contrato-sheet'
+import { LineasContratoSheet } from '@/components/shared/lineas-contrato-sheet'
 import { EQUIPO_TIPOS, formatFecha, diasHasta } from '@/lib/constants'
 import { cn } from '@/lib/utils'
 
@@ -170,14 +170,12 @@ export function RevisionesView() {
           className={hoja === 'contratos' ? '' : 'text-muted-foreground'}
         >
           <FileSpreadsheet className="w-4 h-4 mr-1.5" />
-          Equipos con contrato
+          Líneas contrato
         </Button>
       </div>
 
       {hoja === 'contratos' ? (
-        <EquiposContratoSheet
-          hint="Mismos campos que la hoja de Equipos · solo máquinas con contrato de mantenimiento activo"
-        />
+        <LineasContratoSheet />
       ) : (
         <>
       {/* KPIs */}

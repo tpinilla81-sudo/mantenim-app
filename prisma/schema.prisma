@@ -272,3 +272,44 @@ model Logica {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 }
+
+// ============================================================
+// LINEA CONTRATO — Líneas de contrato de mantenimiento (BC)
+// ============================================================
+// Espejo del Excel "Lista Líneas de Contrato" exportado desde
+// Business Central. Cada fila = una línea de contrato (no un equipo).
+// Un mismo equipo (numeroSerie) puede tener varias líneas a lo largo
+// del tiempo (diferentes contratos y/o diferentes líneas dentro del
+// mismo contrato).
+//
+// Clave única compuesta: (numeroContrato, numeroLinea) — así el
+// re-import del Excel actualiza en vez de duplicar.
+model LineaContrato {
+  id                        String   @id @default(cuid())
+  estadoContrato            String   @default("Firmado") // Firmado | Pendiente | ...
+  numeroContrato            String   // CAC09/000121, L20040018890, CM12/000032...
+  numeroCliente             String?  // 430000002
+  clienteId                 String?  // FK opcional a Cliente (match por numeroCliente)
+  nombreCliente             String?  // denormalizado para display
+  shipToCode                String?  // MARCILLA, ORORBIA, * (todas)
+  codGrupoContrato          String?  // ALQCORTO | ALQLARGO | M1 | M2 | FSCR | FSSR | COMERCIAL | TALLER | STAND BY | MBAT
+  fechaInicioContrato       DateTime? // Contract Starting Date
+  fechaFinContrato          DateTime? // Contract Ending Date
+  numeroLinea               String   // 10000, 20000, 30000... (string para preservar ceros)
+  numeroProductoServicio    String?  // 002994 (string)
+  descripcion               String?  // H 18, H 25 D 03, E16C-02...
+  numeroSerie               String?  // H2X350M03733
+  equipoId                  String?  // FK opcional a Equipo (match por numeroSerie)
+  fechaInicial              DateTime? // Fecha inicial (específica de línea)
+  periodoServicio           String?  // 1Y | 1M | 15D | * | 1D | 3M...
+  siguienteFechaServicio    DateTime? // Siguiente fecha serv. planif.
+
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+
+  // Clave única: contrato + línea
+  @@unique([numeroContrato, numeroLinea])
+  // Índice para buscar por serie o por grupo
+  @@index([numeroSerie])
+  @@index([codGrupoContrato])
+}
