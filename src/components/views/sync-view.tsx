@@ -5,11 +5,13 @@ import React, { useState } from 'react';
 export function SyncView() {
   const [loading, setLoading] = useState(false);
   const [resultMessage, setResultMessage] = useState<string | null>(null);
+  const [isError, setIsError] = useState(false);
 
   async function handleSincronizar5Excels(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setLoading(true);
     setResultMessage(null);
+    setIsError(false);
 
     const formData = new FormData(e.currentTarget);
 
@@ -22,15 +24,17 @@ export function SyncView() {
       const result = await response.json();
 
       if (response.ok && result.success) {
-        // Guardar los registros en localStorage para que la vista de Revisiones los lea
         if (result.data) {
           localStorage.setItem('mantenim_planificacion_data', JSON.stringify(result.data));
         }
+        setIsError(false);
         setResultMessage(`Registrados. Se han procesado ${result.totalRegistros} registros. Ya puedes actualizar la aplicación.`);
       } else {
-        setResultMessage(`Error: ${result.error || 'Desconocido'}`);
+        setIsError(true);
+        setResultMessage(`Error: ${result.error || 'No se pudieron procesar los ficheros.'}`);
       }
     } catch (error: any) {
+      setIsError(true);
       setResultMessage(`Error de red: ${error.message}`);
     } finally {
       setLoading(false);
@@ -54,23 +58,23 @@ export function SyncView() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium mb-1">1. Revisiones.xlsx</label>
-              <input type="file" name="revisiones" accept=".xlsx" required className="w-full text-sm border rounded p-2 bg-background" />
+              <input type="file" name="revisiones" accept=".xlsx, .xls" required className="w-full text-sm border rounded p-2 bg-background" />
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">2. Productos de Servicio.xlsx</label>
-              <input type="file" name="productos" accept=".xlsx" required className="w-full text-sm border rounded p-2 bg-background" />
+              <input type="file" name="productos" accept=".xlsx, .xls" required className="w-full text-sm border rounded p-2 bg-background" />
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">3. Lista Líneas de Contrato.xlsx</label>
-              <input type="file" name="lineasContrato" accept=".xlsx" required className="w-full text-sm border rounded p-2 bg-background" />
+              <input type="file" name="lineasContrato" accept=".xlsx, .xls" required className="w-full text-sm border rounded p-2 bg-background" />
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">4. Pedidos servicio.xlsx</label>
-              <input type="file" name="pedidos" accept=".xlsx" required className="w-full text-sm border rounded p-2 bg-background" />
+              <input type="file" name="pedidos" accept=".xlsx, .xls" required className="w-full text-sm border rounded p-2 bg-background" />
             </div>
             <div className="md:col-span-2">
               <label className="block text-sm font-medium mb-1">5. Pedidos Servicio Registrados.xlsx</label>
-              <input type="file" name="pedidosReg" accept=".xlsx" required className="w-full text-sm border rounded p-2 bg-background" />
+              <input type="file" name="pedidosReg" accept=".xlsx, .xls" required className="w-full text-sm border rounded p-2 bg-background" />
             </div>
           </div>
 
@@ -93,7 +97,7 @@ export function SyncView() {
           </div>
 
           {resultMessage && (
-            <div className="mt-3 p-3 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded text-sm font-medium">
+            <div className={`mt-3 p-3 border rounded text-sm font-medium ${isError ? 'bg-destructive/10 text-destructive border-destructive/20' : 'bg-emerald-50 text-emerald-800 border-emerald-200'}`}>
               {resultMessage}
             </div>
           )}
