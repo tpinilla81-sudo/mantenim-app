@@ -43,7 +43,6 @@ export function SyncView() {
       } else if (name.includes('registrado') || name.includes('reg') || name.includes('posted')) {
         newFiles.pedidosReg = file;
       } else if (name.includes('pedido') || name.includes('ped') || name.includes('order')) {
-        // Si ya tenemos el de pedidos generales y este es el cuarto o quinto sin clasificar con claridad, lo asignamos
         if (!newFiles.pedidos) {
           newFiles.pedidos = file;
         } else if (!newFiles.pedidosReg) {
@@ -52,7 +51,7 @@ export function SyncView() {
       }
     });
 
-    // Fallback por orden si no se detectaron por nombre exacto pero se soltaron 5 ficheros de golpe
+    // Fallback por orden secuencial si no se detectaron por nombre exacto pero se soltaron varios ficheros de golpe
     const unassignedFiles = Array.from(fileList).filter(f => 
       !Object.values(newFiles).includes(f)
     );
@@ -83,6 +82,7 @@ export function SyncView() {
     }
   };
 
+  // Lector ultra-robusto que busca la primera hoja con datos reales
   const readFileAsJSON = (file: File): Promise<any[]> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -90,11 +90,25 @@ export function SyncView() {
         try {
           const buffer = e.target?.result;
           const workbook = XLSX.read(buffer, { type: 'array' });
-          const sheetName = workbook.SheetNames[0];
-          const sheet = workbook.Sheets[sheetName];
-          const data = XLSX.utils.sheet_to_json(sheet) as any[];
           
-          console.log(`📄 Fichero [${file.name}]: ${data.length} filas leídas.`);
+          let sheetName = workbook.SheetNames[0];
+          let sheet = workbook.Sheets[sheetName];
+          let data = XLSX.utils.sheet_to_json(sheet) as any[];
+
+          // Si la primera hoja está vacía, buscamos en el resto de hojas del workbook
+          if (data.length === 0 && workbook.SheetNames.length > 1) {
+            for (const name of workbook.SheetNames) {
+              const altSheet = workbook.Sheets[name];
+              const altData = XLSX.utils.sheet_to_json(altSheet) as any[];
+              if (altData.length > 0) {
+                data = altData;
+                sheetName = name;
+                break;
+              }
+            }
+          }
+          
+          console.log(`📄 Fichero [${file.name}] (Hoja: ${sheetName}): ${data.length} filas leídas. Columnas:`, data[0] ? Object.keys(data[0]) : 'Ninguna');
           resolve(data);
         } catch (error) {
           reject(error);
@@ -125,7 +139,11 @@ export function SyncView() {
       const pedidosRegData = await readFileAsJSON(files.pedidosReg);
       console.groupEnd();
 
-      // Cruce y fusión de datos
+      if (revData.length === 0) {
+        throw new Error("El fichero de Revisiones está vacío o no se ha podido leer ninguna fila.");
+      }
+
+      // Cruce y fusión de datos inteligente en el cliente
       const planificacionMap = new Map();
 
       revData.forEach((item, index) => {
@@ -152,7 +170,7 @@ export function SyncView() {
       console.log(`✅ Guardados con éxito ${resultadoFinal.length} registros en localStorage.`);
 
       setIsError(false);
-      setResultMessage(`¡Éxito! Se han procesado ${resultadoFinal.length} registros localmente. Ya puedes consultar la sección de Revisiones.`);
+      setResultMessage(`¡Éxito! Se han procesado y cruzado ${resultadoFinal.length} registros localmente. Ya puedes consultar la sección de Planificación.`);
     } catch (error: any) {
       setIsError(true);
       console.error('🔥 Error procesando excels:', error);
@@ -208,80 +226,7 @@ export function SyncView() {
           </div>
         </div>
 
-        {/* LISTADO DE LOS 5 FICHEROS CON OPCIÓN DE CLIC MANUAL SI FALTA ALGUNO */}
+        {/* LISTADO DE LOS 5 FICHEROS CON OPCIÓN DE CLIC MANUAL */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {[
-            { key: 'revisiones', label: '1. Revisiones', file: files.revisiones, setter: (f: File) => setFiles(prev => ({ ...prev, revisiones: f })) },
-            { key: 'productos', label: '2. Productos de Servicio', file: files.productos, setter: (f: File) => setFiles(prev => ({ ...prev, productos: f })) },
-            { key: 'lineasContrato', label: '3. Líneas de Contrato', file: files.lineasContrato, setter: (f: File) => setFiles(prev => ({ ...prev, lineasContrato: f })) },
-            { key: 'pedidos', label: '4. Pedidos de Servicio', file: files.pedidos, setter: (f: File) => setFiles(prev => ({ ...prev, pedidos: f })) },
-            { key: 'pedidosReg', label: '5. Pedidos Registrados', file: files.pedidosReg, setter: (f: File) => setFiles(prev => ({ ...prev, pedidosReg: f })) },
-          ].map((item) => {
-            const inputId = `file-input-${item.key}`;
-            return (
-              <div 
-                key={item.key} 
-                onClick={() => document.getElementById(inputId)?.click()}
-                className={`p-3 border rounded-lg flex items-center justify-between text-sm cursor-pointer transition-all hover:border-primary ${
-                  item.file ? 'bg-emerald-50/50 border-emerald-200 text-emerald-900' : 'bg-muted/30 text-muted-foreground border-dashed'
-                }`}
-              >
-                <input 
-                  id={inputId} 
-                  type="file" 
-                  accept=".xlsx, .xls" 
-                  className="hidden" 
-                  onChange={(e) => {
-                    if (e.target.files?.[0]) {
-                      item.setter(e.target.files[0]);
-                    }
-                  }} 
-                />
-                <div className="flex items-center space-x-2 truncate">
-                  <FileSpreadsheet className={`w-4 h-4 flex-shrink-0 ${item.file ? 'text-emerald-600' : 'text-muted-foreground'}`} />
-                  <div className="truncate">
-                    <p className="font-semibold text-xs">{item.label}</p>
-                    <p className="text-xs truncate opacity-80">{item.file ? item.file.name : 'Haz clic o suelta aquí...'}</p>
-                  </div>
-                </div>
-                {item.file && <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 ml-2" />}
-              </div>
-            );
-          })}
-        </div>
-
-        {/* ACCIONES */}
-        <div className="flex items-center gap-4 pt-2 border-t">
-          <button
-            type="button"
-            disabled={loading || !allAssigned}
-            onClick={handleProcessAndSync}
-            className="px-5 py-2.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 font-medium text-sm shadow-sm transition-all"
-          >
-            {loading ? 'Procesando los 5 ficheros...' : 'Procesar y Sincronizar Todo'}
-          </button>
-          
-          <button
-            type="button"
-            onClick={() => {
-              setFiles({ revisiones: null, productos: null, lineasContrato: null, pedidos: null, pedidosReg: null });
-              setResultMessage(null);
-            }}
-            className="px-4 py-2.5 border rounded-lg hover:bg-muted font-medium text-sm"
-          >
-            Reiniciar selección
-          </button>
-        </div>
-
-        {resultMessage && (
-          <div className={`p-4 border rounded-lg text-sm font-medium flex items-start space-x-2 ${isError ? 'bg-destructive/10 text-destructive border-destructive/20' : 'bg-emerald-50 text-emerald-800 border-emerald-200'}`}>
-            {isError ? <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" /> : <CheckCircle2 className="w-5 h-5 flex-shrink-0 mt-0.5" />}
-            <span>{resultMessage}</span>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-export default SyncView;
+            { key: 'revisiones', label: '1. Revisiones', file: files.
