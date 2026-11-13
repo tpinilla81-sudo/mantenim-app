@@ -8,7 +8,7 @@ import {
   X,
   Database,
   Cog,
-  Bell,
+  FileText,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { HoyView } from '@/components/views/hoy-view'
@@ -32,9 +32,15 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   {
     key: 'hoy',
-    label: 'Revisiones',
+    label: 'Revisiones (Hoy)',
     icon: Sun,
     description: 'Listado de productos con contrato vigente + revisiones',
+  },
+  {
+    key: 'revisiones',
+    label: 'Planificación / Revisiones',
+    icon: FileText,
+    description: 'Dataset unificado de revisiones y Business Central',
   },
   {
     key: 'logicas',
@@ -46,12 +52,11 @@ const NAV_ITEMS: NavItem[] = [
     key: 'sync',
     label: 'Sincronizar BC',
     icon: Database,
-    description: 'Importar datos desde Business Central',
+    description: 'Importar datos desde Business Central (5 excels)',
   },
 ]
 
 export default function Home() {
-  // Inicialización perezosa: lee la URL hash al arrancar para compartir enlaces
   const [activeView, setActiveView] = useState<ViewKey>(() => {
     if (typeof window !== 'undefined') {
       const hash = window.location.hash.replace('#', '') as ViewKey
@@ -63,14 +68,12 @@ export default function Home() {
   })
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
-  // Cuando cambia la vista, actualiza la URL hash (sin leer de vuelta)
   useEffect(() => {
     if (typeof window !== 'undefined') {
       window.location.hash = activeView
     }
   }, [activeView])
 
-  // Toast automático al abrir la app: avisar si toca sincronizar
   useEffect(() => {
     if (typeof window === 'undefined') return
     let cancelled = false
