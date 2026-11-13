@@ -10,6 +10,7 @@ import {
   Clock,
   ChevronLeft,
   ChevronRight,
+  FileSpreadsheet,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -30,6 +31,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { EstadoBadge } from '@/components/shared/estado-badge'
+import { EquiposContratoSheet } from '@/components/shared/equipos-contrato-sheet'
 import { EQUIPO_TIPOS, formatFecha, diasHasta } from '@/lib/constants'
 import { cn } from '@/lib/utils'
 
@@ -112,6 +114,9 @@ function KpiCard({
 export function RevisionesView() {
   const [estadoFilter, setEstadoFilter] = useState('TODAS')
   const [diasWindow, setDiasWindow] = useState('60')
+  // Toggle de hoja: 'calendario' (vista tradicional) o 'contratos' (hoja de
+  // equipos con contrato de mantenimiento, con los mismos campos que EquiposView)
+  const [hoja, setHoja] = useState<'calendario' | 'contratos'>('calendario')
 
   const url = useMemo(() => {
     const params = new URLSearchParams()
@@ -147,6 +152,34 @@ export function RevisionesView() {
 
   return (
     <div className="p-4 lg:p-8 space-y-5 max-w-[1400px]">
+      {/* Toggle de hoja */}
+      <div className="flex items-center gap-2 border-b border-border pb-3">
+        <Button
+          variant={hoja === 'calendario' ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => setHoja('calendario')}
+          className={hoja === 'calendario' ? '' : 'text-muted-foreground'}
+        >
+          <CalendarClock className="w-4 h-4 mr-1.5" />
+          Calendario de revisiones
+        </Button>
+        <Button
+          variant={hoja === 'contratos' ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => setHoja('contratos')}
+          className={hoja === 'contratos' ? '' : 'text-muted-foreground'}
+        >
+          <FileSpreadsheet className="w-4 h-4 mr-1.5" />
+          Equipos con contrato
+        </Button>
+      </div>
+
+      {hoja === 'contratos' ? (
+        <EquiposContratoSheet
+          hint="Mismos campos que la hoja de Equipos · solo máquinas con contrato de mantenimiento activo"
+        />
+      ) : (
+        <>
       {/* KPIs */}
       {stats && (
         <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -340,6 +373,8 @@ export function RevisionesView() {
         <p className="text-[12px] text-muted-foreground text-center">
           Mostrando las primeras 200 revisiones. Afilna los filtros para ver más.
         </p>
+      )}
+        </>
       )}
     </div>
   )
