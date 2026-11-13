@@ -10,6 +10,7 @@ import {
   CalendarClock,
   Settings,
   Cog,
+  FileText,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { HoyView } from '@/components/views/hoy-view'
@@ -17,11 +18,13 @@ import { EquiposView } from '@/components/views/equipos-view'
 import { SyncView } from '@/components/views/sync-view'
 import { RevisionesView } from '@/components/views/revisiones-view'
 import { LogicasView } from '@/components/views/logicas-view'
+import { ContratosView } from '@/components/views/contratos-view'
 
 type ViewKey =
   | 'hoy'
   | 'equipos'
   | 'logicas'
+  | 'contratos'
   | 'sync'
   | 'revisiones'
 
@@ -50,6 +53,12 @@ const NAV_ITEMS: NavItem[] = [
     label: 'Lógicas',
     icon: Cog,
     description: 'Reglas de cálculo de revisiones',
+  },
+  {
+    key: 'contratos',
+    label: 'Contratos',
+    icon: FileText,
+    description: 'Productos de servicio + condiciones',
   },
   {
     key: 'sync',
@@ -89,6 +98,8 @@ export default function Home() {
         return <EquiposView />
       case 'logicas':
         return <LogicasView />
+      case 'contratos':
+        return <ContratosView />
       case 'sync':
         return <SyncView />
       case 'revisiones':
