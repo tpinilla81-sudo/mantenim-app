@@ -15,26 +15,41 @@ export function SyncView() {
 
     const formData = new FormData(e.currentTarget);
 
+    // LOG DETALLADO 1: Verificar los ficheros adjuntos en el formulario
+    console.group('📤 [Sincronización BC] Iniciando envío de formulario');
+    console.log('Revisiones:', formData.get('revisiones'));
+    console.log('Productos:', formData.get('productos'));
+    console.log('Líneas Contrato:', formData.get('lineasContrato'));
+    console.log('Pedidos:', formData.get('pedidos'));
+    console.log('Pedidos Registrados:', formData.get('pedidosReg'));
+    console.groupEnd();
+
     try {
       const response = await fetch('/api/sync/planificacion', {
         method: 'POST',
         body: formData,
       });
 
+      console.log('📥 [Sincronización BC] Respuesta HTTP recibida:', response.status, response.statusText);
+
       const result = await response.json();
+      console.log('📊 [Sincronización BC] Datos JSON procesados:', result);
 
       if (response.ok && result.success) {
         if (result.data) {
           localStorage.setItem('mantenim_planificacion_data', JSON.stringify(result.data));
+          console.log(`✅ [Sincronización BC] Guardados ${result.data.length} registros en localStorage.`);
         }
         setIsError(false);
         setResultMessage(`Registrados. Se han procesado ${result.totalRegistros} registros. Ya puedes actualizar la aplicación.`);
       } else {
         setIsError(true);
+        console.error('❌ [Sincronización BC] Error devuelto por la API:', result.error);
         setResultMessage(`Error: ${result.error || 'No se pudieron procesar los ficheros.'}`);
       }
     } catch (error: any) {
       setIsError(true);
+      console.error('🔥 [Sincronización BC] Excepción de red o JS capturada:', error);
       setResultMessage(`Error de red: ${error.message}`);
     } finally {
       setLoading(false);
@@ -45,13 +60,13 @@ export function SyncView() {
     <div className="space-y-6 p-6">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold tracking-tight">Sincronizar BC (5 Excels)</h2>
-        <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded font-medium">Versión Activa</span>
+        <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded font-medium">Versión Activa + Logs</span>
       </div>
       
       <div className="p-6 bg-card border rounded-lg shadow-sm">
         <h3 className="text-lg font-semibold mb-2">Sincronización inteligente con Business Central</h3>
         <p className="text-sm text-muted-foreground mb-4">
-          Sube los 5 ficheros Excel requeridos simultáneamente. La aplicación cruzará y fusionará los datos de forma segura sin borrar información histórica.
+          Sube los 5 ficheros Excel requeridos simultáneamente. Abre la consola del navegador (F12) para ver los registros detallados del proceso.
         </p>
         
         <form onSubmit={handleSincronizar5Excels} className="space-y-4">
