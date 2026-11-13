@@ -12,15 +12,23 @@ export async function POST(request: Request) {
     const filePedidosReg = formData.get('pedidosReg') as File;
 
     if (!fileRevisiones || !fileProductos || !fileLineasContrato || !filePedidos || !filePedidosReg) {
-      return NextResponse.json({ error: 'Faltan ficheros por subir. Se requieren los 5 excels obligatoriamente.' }, { status: 400 });
+      return NextResponse.json({ 
+        success: false, 
+        error: 'Faltan ficheros. Asegúrate de adjuntar los 5 excels obligatorios.' 
+      }, { status: 400 });
     }
 
     const parseExcel = async (file: File) => {
-      const buffer = await file.arrayBuffer();
-      const workbook = XLSX.read(buffer, { type: 'array' });
-      const sheetName = workbook.SheetNames[0];
-      const sheet = workbook.Sheets[sheetName];
-      return XLSX.utils.sheet_to_json(sheet) as any[];
+      try {
+        const buffer = await file.arrayBuffer();
+        const workbook = XLSX.read(buffer, { type: 'array' });
+        const sheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[sheetName];
+        return XLSX.utils.sheet_to_json(sheet) as any[];
+      } catch (err) {
+        console.error(`Error leyendo fichero ${file.name}:`, err);
+        return [];
+      }
     };
 
     const revData = await parseExcel(fileRevisiones);
@@ -55,7 +63,7 @@ export async function POST(request: Request) {
     });
 
   } catch (error: any) {
-    console.error('Error procesando los 5 excels:', error);
-    return NextResponse.json({ error: error.message || 'Error interno al procesar los ficheros' }, { status: 500 });
+    console.error('Error general procesando los 5 excels:', error);
+    return NextResponse.json({ success: false, error: error.message || 'Error interno al procesar los ficheros' }, { status: 500 });
   }
 }
