@@ -82,7 +82,7 @@ export function SyncView() {
     }
   };
 
-  // Lector ultra-robusto que busca la primera hoja con datos reales
+  // Lector inteligente que salta filas vacías o cabeceras institucionales de Business Central
   const readFileAsJSON = (file: File): Promise<any[]> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -93,22 +93,22 @@ export function SyncView() {
           
           let sheetName = workbook.SheetNames[0];
           let sheet = workbook.Sheets[sheetName];
-          let data = XLSX.utils.sheet_to_json(sheet) as any[];
+          let rawData = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[];
 
-          // Si la primera hoja está vacía, buscamos en el resto
-          if (data.length === 0 && workbook.SheetNames.length > 1) {
-            for (const name of workbook.SheetNames) {
-              const altSheet = workbook.Sheets[name];
-              const altData = XLSX.utils.sheet_to_json(altSheet) as any[];
-              if (altData.length > 0) {
-                data = altData;
-                sheetName = name;
-                break;
-              }
+          // Buscar la fila donde realmente empiezan los datos (analizando las primeras 15 filas)
+          let headerRowIndex = 0;
+          for (let i = 0; i < Math.min(rawData.length, 15); i++) {
+            const rowStr = JSON.stringify(rawData[i]).toLowerCase();
+            if (rowStr.includes('nº') || rowStr.includes('prod') || rowStr.includes('contrato') || rowStr.includes('servicio') || rowStr.includes('serie')) {
+              headerRowIndex = i;
+              break;
             }
           }
+
+          // Leer el JSON usando el índice de cabecera detectado automáticamente
+          const data = XLSX.utils.sheet_to_json(sheet, { range: headerRowIndex }) as any[];
           
-          console.log(`📄 Fichero [${file.name}] (Hoja: ${sheetName}): ${data.length} filas leídas. Columnas:`, data[0] ? Object.keys(data[0]) : 'Ninguna');
+          console.log(`📄 Fichero [${file.name}] (Hoja: ${sheetName}, Fila cabecera: ${headerRowIndex}): ${data.length} filas leídas. Columnas:`, data[0] ? Object.keys(data[0]) : 'Ninguna');
           resolve(data);
         } catch (error) {
           reject(error);
