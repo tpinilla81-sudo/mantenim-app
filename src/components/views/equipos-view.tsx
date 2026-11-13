@@ -201,34 +201,36 @@ function ColumnFilterHeader({
     else onChange(filteredOptions)
   }
 
-  const alignClass = align === 'center' ? 'text-center items-center' : align === 'right' ? 'text-right items-end' : 'text-left items-start'
+  const alignClass = align === 'center' ? 'justify-center' : align === 'right' ? 'justify-end' : 'justify-start'
 
   return (
-    <div className={cn('flex flex-col gap-1 py-1', alignClass)}>
-      <span className="text-[12px] font-semibold text-foreground truncate">{title}</span>
-      <Popover
-        open={open}
-        onOpenChange={(o) => {
-          setOpen(o)
-          if (!o) setSearch('')
-        }}
-      >
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            className={cn(
-              'h-7 px-2 text-[11px] inline-flex items-center justify-between gap-1 rounded border w-full',
-              isActive
-                ? 'border-primary bg-primary/5 text-primary'
-                : 'border-input bg-background text-muted-foreground hover:bg-muted/40'
-            )}
-          >
-            <span className="truncate">
-              {isActive ? `${selected.length} selec.` : 'Todos'}
+    <Popover
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o)
+        if (!o) setSearch('')
+      }}
+    >
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            'w-full h-9 px-2 text-[12px] font-semibold inline-flex items-center gap-1.5 border-b-2 transition-colors',
+            alignClass,
+            isActive
+              ? 'text-primary border-b-primary bg-primary/5'
+              : 'text-foreground border-b-transparent hover:bg-muted/60'
+          )}
+        >
+          <span className="truncate">{title}</span>
+          {isActive && (
+            <span className="shrink-0 inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full text-[10px] font-bold leading-none bg-primary text-primary-foreground">
+              {selected.length}
             </span>
-            <Filter className={cn('w-3 h-3 shrink-0', isActive ? 'text-primary' : 'text-muted-foreground')} />
-          </button>
-        </PopoverTrigger>
+          )}
+          <Filter className={cn('w-3 h-3 shrink-0 ml-auto', isActive ? 'text-primary' : 'text-muted-foreground')} />
+        </button>
+      </PopoverTrigger>
         <PopoverContent align="start" className="w-60 p-0" onOpenAutoFocus={(e) => e.preventDefault()}>
           <div className="p-2 border-b">
             <Input
@@ -289,7 +291,6 @@ function ColumnFilterHeader({
           )}
         </PopoverContent>
       </Popover>
-    </div>
   )
 }
 
@@ -624,38 +625,39 @@ export function EquiposView() {
             </div>
           ) : (
             <div
-              className="overflow-auto scrollbar-thin"
+              className="overflow-y-auto overflow-x-hidden scrollbar-thin"
               style={{ maxHeight: 'calc(100vh - 170px)' }}
             >
-              <table className="w-full caption-bottom text-sm border-separate border-spacing-0">
+              <table className="w-full table-fixed caption-bottom text-sm border-separate border-spacing-0">
+                <colgroup>
+                  <col style={{ width: '6%' }} />   {/* Nº */}
+                  <col style={{ width: '8%' }} />   {/* Descripción */}
+                  <col style={{ width: '9%' }} />   {/* Nº Serie */}
+                  <col style={{ width: '10%' }} />  {/* Modelo */}
+                  <col style={{ width: '7%' }} />   {/* Es propio */}
+                  <col style={{ width: '12%' }} />  {/* Cliente */}
+                  <col style={{ width: '9%' }} />   {/* Ubicación */}
+                  <col style={{ width: '6%' }} />   {/* Horas */}
+                  <col style={{ width: '8%' }} />   {/* Próx. rev. */}
+                  <col style={{ width: '8%' }} />   {/* Contrato */}
+                  <col style={{ width: '7%' }} />   {/* Estado */}
+                  <col style={{ width: '10%' }} />  {/* Acciones */}
+                </colgroup>
                 <TableHeader>
-                  <TableRow className="hover:bg-muted/60">
+                  <TableRow className="hover:bg-muted">
                     {FILTER_COLS.map((c) => {
                       const opts = uniqueValues[c.key] || []
                       const sel = colFilters[c.key] || []
                       const alignClass =
                         c.align === 'center' ? 'text-center' :
                         c.align === 'right' ? 'text-right' : 'text-left'
-                      const minW =
-                        c.key === 'codigo' ? 'min-w-[110px]' :
-                        c.key === 'modelo' ? 'min-w-[130px]' :
-                        c.key === 'numeroSerie' ? 'min-w-[130px]' :
-                        c.key === 'marcaModelo' ? 'min-w-[130px]' :
-                        c.key === 'esPropio' ? 'min-w-[110px]' :
-                        c.key === 'cliente' ? 'min-w-[160px]' :
-                        c.key === 'ubicacion' ? 'min-w-[130px]' :
-                        c.key === 'horasUso' ? 'min-w-[100px]' :
-                        c.key === 'proximaRevision' ? 'min-w-[120px]' :
-                        c.key === 'contrato' ? 'min-w-[120px]' :
-                        c.key === 'estado' ? 'min-w-[110px]' : 'min-w-[100px]'
                       return (
                         <TableHead
                           key={c.key}
                           className={cn(
-                            'sticky top-0 z-20 bg-muted/90 backdrop-blur-sm border-b border-border',
+                            'sticky top-0 z-20 bg-muted border-b border-border shadow-sm',
                             alignClass,
-                            minW,
-                            'px-2 align-bottom',
+                            'px-1 align-bottom',
                           )}
                         >
                           <ColumnFilterHeader
@@ -668,49 +670,53 @@ export function EquiposView() {
                         </TableHead>
                       )
                     })}
-                    <TableHead className="sticky top-0 z-20 bg-muted/90 backdrop-blur-sm border-b border-border text-right pr-6 align-bottom min-w-[120px]">
-                      <span className="text-[12px] font-semibold text-foreground">Acciones</span>
+                    <TableHead className="sticky top-0 z-20 bg-muted border-b border-border shadow-sm text-right pr-2 align-bottom" style={{ width: '10%' }}>
+                      <div className="h-9 flex items-center justify-end text-[12px] font-semibold text-foreground pr-1">
+                        Acciones
+                      </div>
                     </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {data.map((eq) => (
                     <TableRow key={eq.id} className="hover:bg-muted/30">
-                      <TableCell>
-                        <p className="text-[12px] font-mono font-medium">{eq.codigo}</p>
+                      <TableCell className="px-2 py-1.5">
+                        <div className="text-[12px] font-mono font-medium truncate">{eq.codigo}</div>
                       </TableCell>
-                      <TableCell className="text-[12px] truncate max-w-[120px]">
-                        {eq.modelo || '—'}
+                      <TableCell className="px-2 py-1.5 max-w-0">
+                        <div className="text-[12px] truncate">{eq.modelo || '—'}</div>
                       </TableCell>
-                      <TableCell className="text-[11px] font-mono text-muted-foreground">
-                        {eq.numeroSerie}
+                      <TableCell className="px-2 py-1.5 max-w-0">
+                        <div className="text-[11px] font-mono text-muted-foreground truncate">{eq.numeroSerie}</div>
                       </TableCell>
-                      <TableCell className="text-[12px]">
-                        {eq.marca !== '—' ? `${eq.marca} ${eq.modelo}` : eq.modelo || '—'}
+                      <TableCell className="px-2 py-1.5 max-w-0">
+                        <div className="text-[12px] truncate">
+                          {eq.marca !== '—' ? `${eq.marca} ${eq.modelo}` : eq.modelo || '—'}
+                        </div>
                       </TableCell>
-                      <TableCell className="text-center">
+                      <TableCell className="px-2 py-1.5 text-center">
                         {eq.esMaquinaPropia ? (
-                          <span className="text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">Sí</span>
+                          <span className="text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-1.5 py-0.5">Sí</span>
                         ) : (
                           <span className="text-[11px] text-muted-foreground">No</span>
                         )}
                       </TableCell>
-                      <TableCell className="text-[12px] truncate max-w-[160px]">
-                        {eq.cliente?.nombre || '—'}
+                      <TableCell className="px-2 py-1.5 max-w-0">
+                        <div className="text-[12px] truncate">{eq.cliente?.nombre || '—'}</div>
                       </TableCell>
-                      <TableCell className="text-[12px] text-muted-foreground truncate max-w-[120px]">
-                        {eq.ubicacion || '—'}
+                      <TableCell className="px-2 py-1.5 max-w-0">
+                        <div className="text-[12px] text-muted-foreground truncate">{eq.ubicacion || '—'}</div>
                       </TableCell>
-                      <TableCell className="text-center text-[12px] tabular-nums">
-                        {eq.horasUso.toLocaleString('es-ES')}
+                      <TableCell className="px-2 py-1.5 text-center text-[12px] tabular-nums">
+                        <div className="truncate">{eq.horasUso.toLocaleString('es-ES')}</div>
                         {eq.proximaRevisionHoras != null && (
-                          <p className="text-[10px] text-muted-foreground">→ {eq.proximaRevisionHoras.toLocaleString('es-ES')}h</p>
+                          <p className="text-[10px] text-muted-foreground truncate">→ {eq.proximaRevisionHoras.toLocaleString('es-ES')}h</p>
                         )}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="px-2 py-1.5 max-w-0">
                         {eq.proximaRevisionFecha ? (
                           <div>
-                            <p className="text-[11px] tabular-nums">{formatFecha(eq.proximaRevisionFecha)}</p>
+                            <p className="text-[11px] tabular-nums truncate">{formatFecha(eq.proximaRevisionFecha)}</p>
                             {(() => {
                               const d = diasHasta(eq.proximaRevisionFecha)
                               if (d === null) return null
@@ -723,18 +729,18 @@ export function EquiposView() {
                           <span className="text-[11px] text-muted-foreground">—</span>
                         )}
                       </TableCell>
-                      <TableCell className="text-[11px] font-mono text-muted-foreground truncate max-w-[120px]">
-                        {eq.contratoActivoId || '—'}
+                      <TableCell className="px-2 py-1.5 max-w-0">
+                        <div className="text-[11px] font-mono text-muted-foreground truncate">{eq.contratoActivoId || '—'}</div>
                       </TableCell>
-                      <TableCell className="text-center">
+                      <TableCell className="px-2 py-1.5 text-center">
                         <EstadoBadge estado={eq.estado} label={EQUIPO_ESTADOS[eq.estado] || eq.estado} />
                       </TableCell>
-                      <TableCell className="text-right pr-6">
-                        <div className="flex justify-end gap-1">
+                      <TableCell className="px-1 py-1 text-right">
+                        <div className="flex justify-end gap-0.5">
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="h-8 w-8 p-0"
+                            className="h-7 w-7 p-0"
                             onClick={() => handleToggleRevision(eq)}
                             aria-label="Alternar tipo revisión"
                             title={eq.tipoRevision === 'POR_CONTRATO' ? 'Cambiar a Por horas' : 'Cambiar a Por contrato (M1/M2)'}
@@ -748,7 +754,7 @@ export function EquiposView() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="h-8 w-8 p-0"
+                            className="h-7 w-7 p-0"
                             onClick={() => openEdit(eq)}
                             aria-label="Editar"
                           >
@@ -757,7 +763,7 @@ export function EquiposView() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="h-8 w-8 p-0 text-rose-600 hover:text-rose-700 hover:bg-rose-50"
+                            className="h-7 w-7 p-0 text-rose-600 hover:text-rose-700 hover:bg-rose-50"
                             onClick={() => setDeleteTarget(eq)}
                             aria-label="Eliminar"
                           >
