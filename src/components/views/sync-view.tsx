@@ -35,7 +35,7 @@ export function SyncView() {
     <div className="space-y-6 p-6">
       <h2 className="text-2xl font-bold tracking-tight">Sincronizar BC</h2>
       
-      {/* 1. Sincronización inteligente con Business Central */}
+      {/* Sincronización inteligente: Subida de los 5 excels a la vez */}
       <div className="p-6 bg-card border rounded-lg shadow-sm">
         <h3 className="text-lg font-semibold mb-2">Sincronización inteligente con Business Central</h3>
         <p className="text-sm text-muted-foreground mb-4">
@@ -92,7 +92,7 @@ export function SyncView() {
         </form>
       </div>
 
-      {/* 2. Historial de sincronizaciones (Limitado a 5 líneas) */}
+      {/* Historial de sincronizaciones (Limitado a 5 líneas) */}
       <div className="p-6 bg-card border rounded-lg shadow-sm">
         <h3 className="text-lg font-semibold mb-3">Historial de sincronizaciones</h3>
         <div className="border rounded divide-y text-sm">
