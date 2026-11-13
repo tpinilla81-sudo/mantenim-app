@@ -1,11 +1,33 @@
 'use client';
 
 import React, { useState } from 'react';
+import * as XLSX from 'xlsx';
 
 export function SyncView() {
   const [loading, setLoading] = useState(false);
   const [resultMessage, setResultMessage] = useState<string | null>(null);
   const [isError, setIsError] = useState(false);
+
+  // Función auxiliar para leer un archivo Excel como JSON
+  const readFileAsJSON = (file: File): Promise<any[]> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const buffer = e.target?.result;
+          const workbook = XLSX.read(buffer, { type: 'array' });
+          const sheetName = workbook.SheetNames[0];
+          const sheet = workbook.Sheets[sheetName];
+          const data = XLSX.utils.sheet_to_json(sheet) as any[];
+          resolve(data);
+        } catch (error) {
+          reject(error);
+        }
+      };
+      reader.onerror = (error) => reject(error);
+      reader.readAsArrayBuffer(file);
+    });
+  };
 
   async function handleSincronizar5Excels(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -13,40 +35,58 @@ export function SyncView() {
     setResultMessage(null);
     setIsError(false);
 
-    const formData = new FormData(e.currentTarget);
+    const form = e.currentTarget;
+    const fileRevisiones = (form.elements.namedItem('revisiones') as HTMLInputElement)?.files?.[0];
+    const fileProductos = (form.elements.namedItem('productos') as HTMLInputElement)?.files?.[0];
+    const fileLineasContrato = (form.elements.namedItem('lineasContrato') as HTMLInputElement)?.files?.[0];
+    const filePedidos = (form.elements.namedItem('pedidos') as HTMLInputElement)?.files?.[0];
+    const filePedidosReg = (form.elements.namedItem('pedidosReg') as HTMLInputElement)?.files?.[0];
 
-    console.group('📤 [Sincronización BC] Iniciando envío de los 5 ficheros');
-    console.log('1. Revisiones:', formData.get('revisiones'));
-    console.log('2. Productos:', formData.get('productos'));
-    console.log('3. Líneas Contrato:', formData.get('lineasContrato'));
-    console.log('4. Pedidos:', formData.get('pedidos'));
-    console.log('5. Pedidos Registrados:', formData.get('pedidosReg'));
-    console.groupEnd();
+    if (!fileRevisiones || !fileProductos || !fileLineasContrato || !filePedidos || !filePedidosReg) {
+      setIsError(true);
+      setResultMessage('Faltan ficheros. Asegúrate de adjuntar los 5 excels obligatorios.');
+      setLoading(false);
+      return;
+    }
 
     try {
-      const response = await fetch('/api/sync/planificacion', {
-        method: 'POST',
-        body: formData,
+      console.group('📤 [Sincronización Local] Leyendo ficheros en el navegador');
+      const revData = await readFileAsJSON(fileRevisiones);
+      const prodData = await readFileAsJSON(fileProductos);
+      const lineasContratoData = await readFileAsJSON(fileLineasContrato);
+      const pedidosData = await readFileAsJSON(filePedidos);
+      const pedidosRegData = await readFileAsJSON(filePedidosReg);
+      console.groupEnd();
+
+      // Cruce y fusión de datos
+      const planificacionMap = new Map();
+
+      revData.forEach((item, index) => {
+        const key = `${item['Nº prod. servicio'] || index}_${item['Nº Contrato'] || 'N/A'}`;
+        planificacionMap.set(key, { ...item, fuente: 'Revisiones' });
       });
 
-      const result = await response.json();
-      console.log('📥 [Sincronización BC] Respuesta de la API:', result);
-
-      if (response.ok && result.success) {
-        if (result.data) {
-          localStorage.setItem('mantenim_planificacion_data', JSON.stringify(result.data));
-          console.log(`✅ Guardados ${result.data.length} registros en localStorage.`);
+      prodData.forEach((prod) => {
+        const serie = String(prod['Nº Serie'] || '');
+        for (const [key, value] of planificacionMap.entries()) {
+          if (key.startsWith(serie)) {
+            planificacionMap.set(key, { ...value, ...prod });
+          }
         }
-        setIsError(false);
-        setResultMessage(`Registrados. Se han procesado ${result.totalRegistros} registros. Ya puedes consultar la sección de Revisiones.`);
-      } else {
-        setIsError(true);
-        setResultMessage(`Error: ${result.error || 'No se pudieron procesar los ficheros.'}`);
-      }
+      });
+
+      const resultadoFinal = Array.from(planificacionMap.values());
+
+      // Guardar directamente en localStorage
+      localStorage.setItem('mantenim_planificacion_data', JSON.stringify(resultadoFinal));
+      console.log(`✅ Guardados ${resultadoFinal.length} registros en localStorage.`);
+
+      setIsError(false);
+      setResultMessage(`Registrados. Se han procesado ${resultadoFinal.length} registros localmente. Ya puedes consultar la sección de Revisiones.`);
     } catch (error: any) {
       setIsError(true);
-      console.error('🔥 Error de red:', error);
-      setResultMessage(`Error de red: ${error.message}`);
+      console.error('🔥 Error procesando excels en cliente:', error);
+      setResultMessage(`Error al procesar los ficheros: ${error.message || 'Formato no válido'}`);
     } finally {
       setLoading(false);
     }
@@ -56,13 +96,13 @@ export function SyncView() {
     <div className="space-y-6 p-6">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold tracking-tight">Sincronizar BC (5 Excels)</h2>
-        <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded font-medium">Versión Definitiva</span>
+        <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded font-medium">Procesamiento Local (Cliente)</span>
       </div>
       
       <div className="p-6 bg-card border rounded-lg shadow-sm">
-        <h3 className="text-lg font-semibold mb-2">Sincronización inteligente con Business Central</h3>
+        <h3 className="text-lg font-semibold mb-2">Sincronización inteligente en el navegador</h3>
         <p className="text-sm text-muted-foreground mb-4">
-          Sube los 5 ficheros Excel requeridos simultáneamente. La aplicación cruzará y fusionará los datos de forma segura.
+          Sube los 5 ficheros Excel requeridos. Se procesarán instantáneamente en tu navegador sin límites de servidor en Vercel.
         </p>
         
         <form onSubmit={handleSincronizar5Excels} className="space-y-4">
@@ -95,7 +135,7 @@ export function SyncView() {
               disabled={loading}
               className="px-4 py-2 bg-primary text-primary-foreground rounded hover:bg-primary/90 disabled:opacity-50 font-medium text-sm"
             >
-              {loading ? 'Procesando los 5 excels...' : 'Sincronizar y Registrar'}
+              {loading ? 'Procesando los 5 excels...' : 'Sincronizar localmente'}
             </button>
             
             <button
@@ -113,32 +153,6 @@ export function SyncView() {
             </div>
           )}
         </form>
-      </div>
-
-      <div className="p-6 bg-card border rounded-lg shadow-sm">
-        <h3 className="text-lg font-semibold mb-3">Historial de sincronizaciones</h3>
-        <div className="border rounded divide-y text-sm">
-          <div className="p-3 flex justify-between items-center bg-muted/30">
-            <span>Sincronización de 5 Excels Business Central (Planificación)</span>
-            <span className="text-muted-foreground text-xs">Hoy, 13:10</span>
-          </div>
-          <div className="p-3 flex justify-between items-center">
-            <span>Sincronización de contratos y líneas internas</span>
-            <span className="text-muted-foreground text-xs">Ayer, 09:45</span>
-          </div>
-          <div className="p-3 flex justify-between items-center">
-            <span>Actualización de pedidos de servicio registrados</span>
-            <span className="text-muted-foreground text-xs">11/11/2026</span>
-          </div>
-          <div className="p-3 flex justify-between items-center">
-            <span>Sincronización automática de productos de servicio</span>
-            <span className="text-muted-foreground text-xs">10/11/2026</span>
-          </div>
-          <div className="p-3 flex justify-between items-center">
-            <span>Carga inicial de catálogos y revisiones anuales</span>
-            <span className="text-muted-foreground text-xs">08/11/2026</span>
-          </div>
-        </div>
       </div>
     </div>
   );
