@@ -131,7 +131,8 @@ function simular(
   logica: Logica,
   horas: number,
   ultimaRevisionISO: string | null,
-  horasAnuales: number
+  horasAnuales: number,
+  revisionesContratadas: number | null
 ): { fecha: string | null; horasObjetivo: number | null; descripcion: string } {
   if (logica.tipoRevision === 'POR_HORAS') {
     const umbral = logica.umbralHoras || 500
@@ -151,16 +152,18 @@ function simular(
     }
   }
   // POR_CONTRATO
-  const periodMeses = logica.revisionesAnual
-    ? 12 / logica.revisionesAnual
+  const revAnual = revisionesContratadas || logica.revisionesAnual
+  const periodMeses = revAnual
+    ? 12 / revAnual
     : logica.periodicidadMeses || 12
   const baseDate = ultimaRevisionISO ? new Date(ultimaRevisionISO) : new Date()
   const prox = new Date(baseDate)
-  prox.setMonth(prox.getMonth() + Math.round(periodMeses))
+  prox.setMonth(prox.getMonth() + Math.max(1, Math.round(periodMeses)))
+  const revTxt = revAnual ? `${revAnual} rev/año (cada ${periodMeses % 1 === 0 ? periodMeses : periodMeses.toFixed(1)} meses)` : `cada ${periodMeses} meses`
   return {
     fecha: prox.toISOString().slice(0, 10),
     horasObjetivo: null,
-    descripcion: `Próxima el ${prox.toLocaleDateString('es-ES')} (${periodMeses % 1 === 0 ? periodMeses : periodMeses.toFixed(1)} meses desde la última)`,
+    descripcion: `Próxima el ${prox.toLocaleDateString('es-ES')} (${revTxt} desde ${ultimaRevisionISO ? 'última revisión' : 'hoy'})`,
   }
 }
 
@@ -177,6 +180,7 @@ export function LogicasView() {
   const [simPropia, setSimPropia] = useState(false)
   const [simHorasAnuales, setSimHorasAnuales] = useState('1500')
   const [simUltimaRev, setSimUltimaRev] = useState('')
+  const [simRevContratadas, setSimRevContratadas] = useState('4')
 
   const { data: resp, loading, error, refetch } = useFetch<{ data: Logica[]; total: number }>(
     '/api/logicas'
@@ -203,9 +207,10 @@ export function LogicasView() {
       logicaAplicable,
       Number(simHoras) || 0,
       simUltimaRev || null,
-      Number(simHorasAnuales) || 0
+      Number(simHorasAnuales) || 0,
+      Number(simRevContratadas) || null
     )
-  }, [logicaAplicable, simHoras, simHorasAnuales, simUltimaRev])
+  }, [logicaAplicable, simHoras, simHorasAnuales, simUltimaRev, simRevContratadas])
 
   const openCreate = () => {
     setEditing(null)
@@ -294,6 +299,25 @@ export function LogicasView() {
     }
   }
 
+  const [seeding, setSeeding] = useState(false)
+  const handleSeed = async () => {
+    setSeeding(true)
+    try {
+      const res = await fetch('/api/logicas/seed', { method: 'POST' })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error)
+      toast.success(
+        `Reglas cargadas: ${json.creadas} nuevas, ${json.saltadas} ya existían`,
+        { description: 'Incluye: máquina cliente con contrato, propia cada 500h y 1000h, cliente sin contrato anual' }
+      )
+      refetch()
+    } catch (err) {
+      toast.error('Error al cargar reglas por defecto', { description: (err as Error).message })
+    } finally {
+      setSeeding(false)
+    }
+  }
+
   return (
     <div className="p-4 lg:p-8 space-y-6 max-w-[1400px]">
       {/* Header */}
@@ -304,10 +328,31 @@ export function LogicasView() {
             Las reglas se aplican en orden de <strong className="text-foreground">prioridad</strong> (1 = máxima).
           </p>
         </div>
-        <Button onClick={openCreate}>
-          <Plus className="w-4 h-4 mr-1.5" />
-          Nueva lógica
-        </Button>
+        <div className="flex items-center gap-2">
+          {logicas.length === 0 && (
+            <Button
+              variant="outline"
+              onClick={handleSeed}
+              disabled={seeding}
+            >
+              {seeding ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+                  Cargando...
+                </>
+              ) : (
+                <>
+                  <Plus className="w-4 h-4 mr-1.5" />
+                  Cargar reglas por defecto
+                </>
+              )}
+            </Button>
+          )}
+          <Button onClick={openCreate}>
+            <Plus className="w-4 h-4 mr-1.5" />
+            Nueva lógica
+          </Button>
+        </div>
       </div>
 
       {/* Listado */}
@@ -460,7 +505,7 @@ export function LogicasView() {
               Comprueba qué lógica se aplicaría a un equipo hipotético y qué próxima revisión calcularía
             </span>
           </div>
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
             <div className="space-y-1.5">
               <Label className="text-[12px]">Tipo de equipo</Label>
               <Select value={simTipo} onValueChange={setSimTipo}>
@@ -493,6 +538,21 @@ export function LogicasView() {
                 onChange={(e) => setSimHorasAnuales(e.target.value)}
                 className="h-9 tabular-nums"
               />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-[12px]">Revisiones contratadas/año</Label>
+              <Input
+                type="number"
+                value={simRevContratadas}
+                onChange={(e) => setSimRevContratadas(e.target.value)}
+                placeholder="4 = trimestral, 2 = semestral"
+                min="1"
+                max="52"
+                className="h-9 tabular-nums"
+              />
+              <p className="text-[10px] text-muted-foreground">
+                Solo aplica si la lógica es POR_CONTRATO.
+              </p>
             </div>
             <div className="space-y-1.5">
               <Label className="text-[12px]">Última revisión</Label>
