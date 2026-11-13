@@ -238,3 +238,37 @@ model SyncLog {
   errores         String?  // JSON string con lista de errores (truncado)
   syncType        String   @default("EXCEL_BC") // EXCEL_BC | API_BC | MANUAL
 }
+
+// ============================================================
+// LOGICA — Reglas configurables de cálculo de revisiones
+// ============================================================
+// Cada lógica es una regla que determina cómo se calcula la próxima
+// revisión para un conjunto de equipos que cumplen ciertos criterios.
+// El motor de cálculo aplica las reglas en orden de prioridad ascendente
+// (1 = máxima prioridad) y usa la primera que coincida con el equipo.
+model Logica {
+  id              String   @id @default(cuid())
+  nombre          String   @unique
+  descripcion     String?
+
+  // Criterios de aplicación (todos los campos null/'' = "aplica a cualquiera")
+  tipoEquipo      String?  // GRUA_TORRE | GRUA_MOVIL | MONTACARGAS_ELECTRICO | ... | null = cualquier tipo
+  esMaquinaPropia String?  // SI | NO | null = cualquiera
+
+  // Configuración de cálculo
+  tipoRevision    String   @default("POR_HORAS") // POR_HORAS | POR_CONTRATO
+  umbralHoras     Int?     // Para POR_HORAS: 500, 1000, etc.
+  periodicidadMeses Int?   // Para POR_CONTRATO: cada cuántos meses
+  revisionesAnual Int?     // Para POR_CONTRATO: 4 = trimestral, 2 = semestral...
+  nivel           String?  // PEQUENA | MEDIA | GRANDE | CONTRATO
+  servicio        String?  // M1 | M2 | FSCR | FSSR | libre
+
+  // Texto de la fórmula en lenguaje natural (display)
+  formula         String?
+
+  activa          Boolean  @default(true)
+  prioridad       Int      @default(100) // 1 = máxima prioridad
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}

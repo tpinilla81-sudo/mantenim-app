@@ -9,16 +9,19 @@ import {
   Database,
   CalendarClock,
   Settings,
+  Cog,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { HoyView } from '@/components/views/hoy-view'
 import { EquiposView } from '@/components/views/equipos-view'
 import { SyncView } from '@/components/views/sync-view'
 import { RevisionesView } from '@/components/views/revisiones-view'
+import { LogicasView } from '@/components/views/logicas-view'
 
 type ViewKey =
   | 'hoy'
   | 'equipos'
+  | 'logicas'
   | 'sync'
   | 'revisiones'
 
@@ -41,6 +44,12 @@ const NAV_ITEMS: NavItem[] = [
     label: 'Equipos',
     icon: Forklift,
     description: 'Listado de máquinas',
+  },
+  {
+    key: 'logicas',
+    label: 'Lógicas',
+    icon: Cog,
+    description: 'Reglas de cálculo de revisiones',
   },
   {
     key: 'sync',
@@ -78,6 +87,8 @@ export default function Home() {
         return <HoyView onNavigate={setActiveView} />
       case 'equipos':
         return <EquiposView />
+      case 'logicas':
+        return <LogicasView />
       case 'sync':
         return <SyncView />
       case 'revisiones':
