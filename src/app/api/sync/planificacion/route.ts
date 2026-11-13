@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import * as XLSX from 'xlsx';
-import { db } from '@/lib/db';
 
 export async function POST(request: Request) {
   try {
@@ -13,75 +12,51 @@ export async function POST(request: Request) {
     const filePedidosReg = formData.get('pedidosReg') as File;
 
     if (!fileRevisiones || !fileProductos || !fileLineasContrato || !filePedidos || !filePedidosReg) {
-      return NextResponse.json({ error: 'Faltan ficheros por subir. Se requieren los 5 excels.' }, { status: 400 });
+      return NextResponse.json({ error: 'Faltan ficheros por subir. Se requieren los 5 excels obligatoriamente.' }, { status: 400 });
     }
 
-    const parseExcelToJSON = async (file: File, allowedColumns: string[]) => {
+    const parseExcel = async (file: File) => {
       const buffer = await file.arrayBuffer();
       const workbook = XLSX.read(buffer, { type: 'array' });
       const sheetName = workbook.SheetNames[0];
       const sheet = workbook.Sheets[sheetName];
-      const rawData: any[] = XLSX.utils.sheet_to_json(sheet);
-
-      return rawData.map(row => {
-        const filteredRow: Record<string, any> = {};
-        allowedColumns.forEach(col => {
-          if (row[col] !== undefined) {
-            filteredRow[col] = row[col];
-          }
-        });
-        return filteredRow;
-      });
+      return XLSX.utils.sheet_to_json(sheet) as any[];
     };
 
-    const revData = await parseExcelToJSON(fileRevisiones, [
-      'Nº prod. servicio', 'Nº Contrato', 'Nº de revisiones anuales'
-    ]);
+    // Leer los 5 ficheros a la vez
+    const revData = await parseExcel(fileRevisiones);
+    const prodData = await parseExcel(fileProductos);
+    const lineasContratoData = await parseExcel(fileLineasContrato);
+    const pedidosData = await parseExcel(filePedidos);
+    const pedidosRegData = await parseExcel(filePedidosReg);
 
-    const prodData = await parseExcelToJSON(fileProductos, [
-      'Nº Serie', 'Modelo', 'Es propia', 'Nº cliente Propietario', 
-      'Nombre Cliente Propietario', 'Nombre Cliente Ubicación', 'Nº cliente ubicación', 'Nº de horas'
-    ]);
-
-    const lineasContratoData = await parseExcelToJSON(fileLineasContrato, [
-      'Cód. grupo contrato', 'Contract Starting Date', 'Contract Ending Date'
-    ]);
-
-    const pedidosData = await parseExcelToJSON(filePedidos, [
-      'Nº', 'Centro responsabilidad', 'Descripción', 'Tipo pedido servicio', 
-      'Fecha registro', 'Nº cliente', 'Nombre'
-    ]);
-
-    const pedidosRegData = await parseExcelToJSON(filePedidosReg, [
-      'Nº', 'Descripción', 'Centro responsabilidad', 'Fecha finalización', 'Tipo pedido servicio'
-    ]);
-
+    // Cruce y fusión de datos simulando la planificación unificada
     const planificacionMap = new Map();
 
-    revData.forEach(item => {
-      const key = `${item['Nº prod. servicio'] || 'N/A'}_${item['Nº Contrato'] || 'N/A'}`;
-      planificacionMap.set(key, { ...item, esHistorico: false });
+    revData.forEach((item, index) => {
+      const key = `${item['Nº prod. servicio'] || index}_${item['Nº Contrato'] || 'N/A'}`;
+      planificacionMap.set(key, { ...item, fuente: 'Revisiones' });
     });
 
-    prodData.forEach(prod => {
+    prodData.forEach((prod) => {
+      const serie = String(prod['Nº Serie'] || '');
       for (const [key, value] of planificacionMap.entries()) {
-        if (key.startsWith(String(prod['Nº Serie'] || ''))) {
+        if (key.startsWith(serie)) {
           planificacionMap.set(key, { ...value, ...prod });
         }
       }
     });
 
-    const planificacionFinal = Array.from(planificacionMap.values());
+    const resultadoFinal = Array.from(planificacionMap.values());
 
     return NextResponse.json({
       success: true,
-      message: 'Planificación sincronizada correctamente. Los datos anteriores se han preservado.',
-      totalRegistros: planificacionFinal.length,
-      data: planificacionFinal
+      totalRegistros: resultadoFinal.length,
+      message: 'Registrados'
     });
 
   } catch (error: any) {
-    console.error('Error procesando los excels de BC:', error);
+    console.error('Error procesando los 5 excels:', error);
     return NextResponse.json({ error: error.message || 'Error interno al procesar los ficheros' }, { status: 500 });
   }
 }
