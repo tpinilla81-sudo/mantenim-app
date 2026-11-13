@@ -14,6 +14,17 @@ export async function GET() {
     const contratosActivos = await db.contrato.count({ where: { estado: 'ACTIVO' } })
     const contratosVencidos = await db.contrato.count({ where: { estado: 'VENCIDO' } })
 
+    // Leer configuración de intervalo de recordatorio
+    const configRow = await db.appConfig.findUnique({
+      where: { key: 'syncReminderInterval' },
+    })
+    const intervalo = configRow?.value || 'mes'
+    const umbralCaducidadDias =
+      intervalo === 'semana' ? 7 :
+      intervalo === 'bisemana' ? 14 :
+      intervalo === 'mes' ? 30 :
+      999999 // 'nunca' → nunca caduca
+
     // Calcular días desde el último sync
     let diasDesdeUltimoSync: number | null = null
     let syncCaducado = false
@@ -21,7 +32,7 @@ export async function GET() {
       const ahora = new Date()
       const diff = ahora.getTime() - ultimoSync.fecha.getTime()
       diasDesdeUltimoSync = Math.floor(diff / (1000 * 60 * 60 * 24))
-      syncCaducado = diasDesdeUltimoSync >= 30
+      syncCaducado = diasDesdeUltimoSync >= umbralCaducidadDias
     }
 
     return NextResponse.json({
@@ -46,7 +57,8 @@ export async function GET() {
         : null,
       diasDesdeUltimoSync,
       syncCaducado,
-      umbralCaducidadDias: 30,
+      umbralCaducidadDias,
+      syncReminderInterval: intervalo,
       totalSyncs,
       totalClientes,
       totalContratos,

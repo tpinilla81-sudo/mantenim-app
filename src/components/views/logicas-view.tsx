@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useFetch, apiFetch } from '@/lib/use-fetch'
 import { toast } from 'sonner'
 import {
@@ -13,6 +13,7 @@ import {
   Power,
   Loader2,
   ArrowRight,
+  Bell,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -165,6 +166,78 @@ function simular(
     horasObjetivo: null,
     descripcion: `Próxima el ${prox.toLocaleDateString('es-ES')} (${revTxt} desde ${ultimaRevisionISO ? 'última revisión' : 'hoy'})`,
   }
+}
+
+// Componente para configurar el intervalo de recordatorio de sincronización.
+// Aparece arriba en la sección Lógicas.
+function SyncReminderConfig() {
+  const { data: config, refetch } = useFetch<Record<string, string>>('/api/config')
+  const [intervalo, setIntervalo] = useState('mes')
+  const [guardando, setGuardando] = useState(false)
+
+  useEffect(() => {
+    if (config?.syncReminderInterval) {
+      setIntervalo(config.syncReminderInterval)
+    }
+  }, [config])
+
+  const handleChange = async (nuevo: string) => {
+    setIntervalo(nuevo)
+    setGuardando(true)
+    try {
+      await apiFetch('/api/config', 'PUT', { key: 'syncReminderInterval', value: nuevo })
+      toast.success(
+        `Recordatorio configurado: ${
+          nuevo === 'semana' ? 'cada semana' :
+          nuevo === 'bisemana' ? 'cada 2 semanas' :
+          nuevo === 'mes' ? 'cada mes' :
+          'desactivado'
+        }`
+      )
+      refetch()
+    } catch (err) {
+      toast.error('Error al guardar', { description: (err as Error).message })
+    } finally {
+      setGuardando(false)
+    }
+  }
+
+  const opciones: Array<{ value: string; label: string }> = [
+    { value: 'semana', label: 'Semanal (7 días)' },
+    { value: 'bisemana', label: 'Bisemanal (14 días)' },
+    { value: 'mes', label: 'Mensual (30 días)' },
+    { value: 'nunca', label: 'Nunca (desactivado)' },
+  ]
+
+  return (
+    <Card className="border-primary/20 bg-primary/[0.02]">
+      <CardContent className="p-4">
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 shrink-0">
+            <Bell className="w-4 h-4 text-primary" />
+            <Label className="text-[13px] font-semibold cursor-pointer">
+              Recordatorio de sincronización
+            </Label>
+          </div>
+          <Select value={intervalo} onValueChange={handleChange} disabled={guardando}>
+            <SelectTrigger className="w-[220px] h-8">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {opciones.map((op) => (
+                <SelectItem key={op.value} value={op.value}>
+                  {op.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-[11px] text-muted-foreground">
+            La app mostrará un mensaje recordando sincronizar cuando pase este tiempo sin actualizar.
+          </p>
+        </div>
+      </CardContent>
+    </Card>
+  )
 }
 
 export function LogicasView() {
@@ -320,6 +393,9 @@ export function LogicasView() {
 
   return (
     <div className="p-4 lg:p-8 space-y-6 max-w-[1400px]">
+      {/* Configuración de recordatorio de sincronización */}
+      <SyncReminderConfig />
+
       {/* Header */}
       <div className="flex items-center justify-between gap-3">
         <div>

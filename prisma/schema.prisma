@@ -313,3 +313,15 @@ model LineaContrato {
   @@index([numeroSerie])
   @@index([codGrupoContrato])
 }
+
+// ============================================================
+// APP CONFIG — Configuración global de la aplicación
+// ============================================================
+// Almacén key-value para settings globales (intervalo de recordatorio
+// de sincronización, umbrales, preferencias, etc.)
+model AppConfig {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
+}

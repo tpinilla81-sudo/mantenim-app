@@ -1,30 +1,24 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { toast } from 'sonner'
 import {
   Sun,
-  Forklift,
   Menu,
   X,
   Database,
-  CalendarClock,
-  Settings,
   Cog,
-  FileText,
+  Bell,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { HoyView } from '@/components/views/hoy-view'
-import { EquiposView } from '@/components/views/equipos-view'
 import { SyncView } from '@/components/views/sync-view'
 import { RevisionesView } from '@/components/views/revisiones-view'
 import { LogicasView } from '@/components/views/logicas-view'
-import { ContratosView } from '@/components/views/contratos-view'
 
 type ViewKey =
   | 'hoy'
-  | 'equipos'
   | 'logicas'
-  | 'contratos'
   | 'sync'
   | 'revisiones'
 
@@ -76,18 +70,58 @@ export default function Home() {
     }
   }, [activeView])
 
+  // Toast automático al abrir la app: avisar si toca sincronizar
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    let cancelled = false
+    fetch('/api/sync')
+      .then((res) => res.json())
+      .then((data) => {
+        if (cancelled || !data) return
+        if (data.syncCaducado) {
+          const dias = data.diasDesdeUltimoSync ?? '?'
+          const intervalo = data.syncReminderInterval || 'mes'
+          const intervaloTxt =
+            intervalo === 'semana' ? 'semana' :
+            intervalo === 'bisemana' ? '2 semanas' :
+            'mes'
+          toast.warning(
+            `Toca sincronizar — han pasado ${dias} días`,
+            {
+              description: `El intervalo configurado es cada ${intervaloTxt}. Ve a Sincronizar BC para subir los Excels actualizados.`,
+              duration: 8000,
+              action: {
+                label: 'Ir a Sincronizar',
+                onClick: () => setActiveView('sync'),
+              },
+            }
+          )
+        } else if (!data.ultimoSync) {
+          toast.info(
+            'Bienvenido — aún no has sincronizado',
+            {
+              description: 'Ve a Sincronizar BC para subir los Excels de Business Central y empezar a usar la app.',
+              duration: 8000,
+              action: {
+                label: 'Empezar',
+                onClick: () => setActiveView('sync'),
+              },
+            }
+          )
+        }
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+
   const currentNav = NAV_ITEMS.find((n) => n.key === activeView)!
 
   const renderView = () => {
     switch (activeView) {
       case 'hoy':
         return <HoyView onNavigate={setActiveView} />
-      case 'equipos':
-        return <EquiposView />
       case 'logicas':
         return <LogicasView />
-      case 'contratos':
-        return <ContratosView />
       case 'sync':
         return <SyncView />
       case 'revisiones':
