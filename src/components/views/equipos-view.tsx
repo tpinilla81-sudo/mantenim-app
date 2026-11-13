@@ -314,7 +314,7 @@ export function EquiposView() {
   const clientesList = clientesResp?.data || []
 
   // Cargar TODOS los equipos (sin paginación, con scroll)
-  const url = '/api/equipos?limit=2000'
+  const url = '/api/equipos?limit=20000'
   const { data: resp, loading, error, refetch } = useFetch<{
     data: Equipo[]
     total: number

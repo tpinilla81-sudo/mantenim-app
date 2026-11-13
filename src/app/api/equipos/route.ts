@@ -11,7 +11,7 @@ export async function GET(request: NextRequest) {
     const clienteId = searchParams.get('clienteId')
     const tipoRevision = searchParams.get('tipoRevision')
     const incluirHistoricos = searchParams.get('historico') === 'true'
-    const limit = Math.min(Number(searchParams.get('limit') || '200'), 500)
+    const limit = Math.min(Number(searchParams.get('limit') || '200'), 20000)
     const offset = Math.max(Number(searchParams.get('offset') || '0'), 0)
 
     const where: Record<string, unknown> = {}
