@@ -12,7 +12,7 @@ export function RevisionesView() {
   const [sortField, setSortField] = useState<string>('Nº Serie');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
-  // Estados para la paginación
+  // Estados para la paginación (15 por página)
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 15;
 
@@ -27,12 +27,10 @@ export function RevisionesView() {
     }
   }, []);
 
-  // Reiniciar a la página 1 cuando cambia la búsqueda o el filtro
   useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm, selectedClient]);
 
-  // Extraer lista única de clientes para el filtro avanzado
   const uniqueClients = useMemo(() => {
     const clients = new Set<string>();
     items.forEach(row => {
@@ -42,9 +40,7 @@ export function RevisionesView() {
     return Array.from(clients).sort();
   }, [items]);
 
-  // Filtrado y Ordenación combinados
   const filteredAndSortedItems = useMemo(() => {
-    // 1. Filtrar
     const filtered = items.filter(row => {
       const serie = String(row['Nº Serie'] || row['Nº prod. servicio'] || '').toLowerCase();
       const modelo = String(row['Modelo'] || '').toLowerCase();
@@ -66,7 +62,6 @@ export function RevisionesView() {
       return matchesSearch && matchesClient;
     });
 
-    // 2. Ordenar
     return filtered.sort((a, b) => {
       let valA = a[sortField] || '';
       let valB = b[sortField] || '';
@@ -85,7 +80,6 @@ export function RevisionesView() {
     });
   }, [items, searchTerm, selectedClient, sortField, sortDirection]);
 
-  // Paginación de los datos filtrados y ordenados
   const totalPages = Math.ceil(filteredAndSortedItems.length / itemsPerPage);
   
   const paginatedItems = useMemo(() => {
@@ -125,7 +119,6 @@ export function RevisionesView() {
         </div>
       </div>
 
-      {/* Barra de Búsqueda y Filtros */}
       {items.length > 0 && (
         <div className="flex flex-col sm:flex-row gap-3 bg-card p-4 border rounded-lg shadow-sm">
           <div className="relative flex-1">
@@ -175,53 +168,23 @@ export function RevisionesView() {
             <table className="w-full text-left text-sm">
               <thead className="bg-muted border-b text-muted-foreground font-semibold">
                 <tr>
-                  <th 
-                    onClick={() => handleSort('Nº Serie')} 
-                    className="p-3 cursor-pointer hover:bg-muted/80 select-none transition-colors"
-                  >
-                    <div className="flex items-center">
-                      Nº Serie {renderSortIcon('Nº Serie')}
-                    </div>
+                  <th onClick={() => handleSort('Nº Serie')} className="p-3 cursor-pointer hover:bg-muted/80 select-none transition-colors">
+                    <div className="flex items-center">Nº Serie {renderSortIcon('Nº Serie')}</div>
                   </th>
-                  <th 
-                    onClick={() => handleSort('Modelo')} 
-                    className="p-3 cursor-pointer hover:bg-muted/80 select-none transition-colors"
-                  >
-                    <div className="flex items-center">
-                      Modelo {renderSortIcon('Modelo')}
-                    </div>
+                  <th onClick={() => handleSort('Modelo')} className="p-3 cursor-pointer hover:bg-muted/80 select-none transition-colors">
+                    <div className="flex items-center">Modelo {renderSortIcon('Modelo')}</div>
                   </th>
-                  <th 
-                    onClick={() => handleSort('Nº Contrato')} 
-                    className="p-3 cursor-pointer hover:bg-muted/80 select-none transition-colors"
-                  >
-                    <div className="flex items-center">
-                      Nº Contrato {renderSortIcon('Nº Contrato')}
-                    </div>
+                  <th onClick={() => handleSort('Nº Contrato')} className="p-3 cursor-pointer hover:bg-muted/80 select-none transition-colors">
+                    <div className="flex items-center">Nº Contrato {renderSortIcon('Nº Contrato')}</div>
                   </th>
-                  <th 
-                    onClick={() => handleSort('Nombre Cliente Propietario')} 
-                    className="p-3 cursor-pointer hover:bg-muted/80 select-none transition-colors"
-                  >
-                    <div className="flex items-center">
-                      Cliente Propietario {renderSortIcon('Nombre Cliente Propietario')}
-                    </div>
+                  <th onClick={() => handleSort('Nombre Cliente Propietario')} className="p-3 cursor-pointer hover:bg-muted/80 select-none transition-colors">
+                    <div className="flex items-center">Cliente Propietario {renderSortIcon('Nombre Cliente Propietario')}</div>
                   </th>
-                  <th 
-                    onClick={() => handleSort('Nombre Cliente Ubicación')} 
-                    className="p-3 cursor-pointer hover:bg-muted/80 select-none transition-colors"
-                  >
-                    <div className="flex items-center">
-                      Ubicación {renderSortIcon('Nombre Cliente Ubicación')}
-                    </div>
+                  <th onClick={() => handleSort('Nombre Cliente Ubicación')} className="p-3 cursor-pointer hover:bg-muted/80 select-none transition-colors">
+                    <div className="flex items-center">Ubicación {renderSortIcon('Nombre Cliente Ubicación')}</div>
                   </th>
-                  <th 
-                    onClick={() => handleSort('Nº de horas')} 
-                    className="p-3 cursor-pointer hover:bg-muted/80 select-none transition-colors"
-                  >
-                    <div className="flex items-center">
-                      Nº Horas {renderSortIcon('Nº de horas')}
-                    </div>
+                  <th onClick={() => handleSort('Nº de horas')} className="p-3 cursor-pointer hover:bg-muted/80 select-none transition-colors">
+                    <div className="flex items-center">Nº Horas {renderSortIcon('Nº de horas')}</div>
                   </th>
                 </tr>
               </thead>
@@ -240,7 +203,6 @@ export function RevisionesView() {
             </table>
           </div>
 
-          {/* Barra de Paginación Inferior */}
           <div className="flex items-center justify-between px-4 py-3 border-t bg-muted/20 text-sm">
             <span className="text-muted-foreground text-xs sm:text-sm">
               Página <span className="font-semibold text-foreground">{currentPage}</span> de <span className="font-semibold text-foreground">{totalPages || 1}</span>
