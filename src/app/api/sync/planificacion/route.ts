@@ -23,14 +23,12 @@ export async function POST(request: Request) {
       return XLSX.utils.sheet_to_json(sheet) as any[];
     };
 
-    // Leer los 5 ficheros a la vez
     const revData = await parseExcel(fileRevisiones);
     const prodData = await parseExcel(fileProductos);
     const lineasContratoData = await parseExcel(fileLineasContrato);
     const pedidosData = await parseExcel(filePedidos);
     const pedidosRegData = await parseExcel(filePedidosReg);
 
-    // Cruce y fusión de datos simulando la planificación unificada
     const planificacionMap = new Map();
 
     revData.forEach((item, index) => {
@@ -52,6 +50,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       totalRegistros: resultadoFinal.length,
+      data: resultadoFinal,
       message: 'Registrados'
     });
 
