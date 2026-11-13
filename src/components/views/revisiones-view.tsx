@@ -1,12 +1,16 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Search, Filter, RefreshCw } from 'lucide-react';
+import { Search, ArrowUpDown, ChevronUp, ChevronDown } from 'lucide-react';
 
 export function RevisionesView() {
   const [items, setItems] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedClient, setSelectedClient] = useState('ALL');
+  
+  // Estados para la ordenación
+  const [sortField, setSortField] = useState<string>('Nº Serie');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
   useEffect(() => {
     const saved = localStorage.getItem('mantenim_planificacion_data');
@@ -29,9 +33,10 @@ export function RevisionesView() {
     return Array.from(clients).sort();
   }, [items]);
 
-  // Filtrado en tiempo real
-  const filteredItems = useMemo(() => {
-    return items.filter(row => {
+  // Filtrado y Ordenación combinados
+  const filteredAndSortedItems = useMemo(() => {
+    // 1. Filtrar
+    const filtered = items.filter(row => {
       const serie = String(row['Nº Serie'] || row['Nº prod. servicio'] || '').toLowerCase();
       const modelo = String(row['Modelo'] || '').toLowerCase();
       const contrato = String(row['Nº Contrato'] || '').toLowerCase();
@@ -51,7 +56,42 @@ export function RevisionesView() {
 
       return matchesSearch && matchesClient;
     });
-  }, [items, searchTerm, selectedClient]);
+
+    // 2. Ordenar
+    return filtered.sort((a, b) => {
+      let valA = a[sortField] || '';
+      let valB = b[sortField] || '';
+
+      // Conversión numérica si es el campo de horas
+      if (sortField === 'Nº de horas') {
+        valA = Number(valA) || 0;
+        valB = Number(valB) || 0;
+      } else {
+        valA = String(valA).toLowerCase();
+        valB = String(valB).toLowerCase();
+      }
+
+      if (valA < valB) return sortDirection === 'asc' ? -1 : 1;
+      if (valA > valB) return sortDirection === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }, [items, searchTerm, selectedClient, sortField, sortDirection]);
+
+  const handleSort = (field: string) => {
+    if (sortField === field) {
+      setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  const renderSortIcon = (field: string) => {
+    if (sortField !== field) return <ArrowUpDown className="w-3.5 h-3.5 ml-1 text-muted-foreground/50" />;
+    return sortDirection === 'asc' 
+      ? <ChevronUp className="w-3.5 h-3.5 ml-1 text-primary" /> 
+      : <ChevronDown className="w-3.5 h-3.5 ml-1 text-primary" />;
+  };
 
   return (
     <div className="p-6 space-y-6">
@@ -64,7 +104,7 @@ export function RevisionesView() {
         </div>
         <div className="flex items-center gap-3">
           <div className="text-sm font-medium bg-muted px-3 py-1.5 rounded border">
-            Mostrando: <span className="font-bold">{filteredItems.length}</span> de {items.length} registros
+            Mostrando: <span className="font-bold">{filteredAndSortedItems.length}</span> de {items.length} registros
           </div>
         </div>
       </div>
@@ -103,7 +143,7 @@ export function RevisionesView() {
           <p className="text-base font-medium mb-1">No hay datos de planificación sincronizados.</p>
           <p className="text-sm">Ve a la sección <span className="underline font-semibold">Sincronizar BC</span> para subir los 5 excels y generar los registros.</p>
         </div>
-      ) : filteredItems.length === 0 ? (
+      ) : filteredAndSortedItems.length === 0 ? (
         <div className="p-12 text-center border rounded-lg bg-card text-muted-foreground">
           <p className="text-base font-medium mb-1">Ningún registro coincide con los filtros de búsqueda.</p>
           <button 
@@ -119,16 +159,58 @@ export function RevisionesView() {
             <table className="w-full text-left text-sm">
               <thead className="bg-muted border-b text-muted-foreground font-semibold">
                 <tr>
-                  <th className="p-3">Nº Serie</th>
-                  <th className="p-3">Modelo</th>
-                  <th className="p-3">Nº Contrato</th>
-                  <th className="p-3">Cliente Propietario</th>
-                  <th className="p-3">Ubicación</th>
-                  <th className="p-3">Nº Horas</th>
+                  <th 
+                    onClick={() => handleSort('Nº Serie')} 
+                    className="p-3 cursor-pointer hover:bg-muted/80 select-none transition-colors"
+                  >
+                    <div className="flex items-center">
+                      Nº Serie {renderSortIcon('Nº Serie')}
+                    </div>
+                  </th>
+                  <th 
+                    onClick={() => handleSort('Modelo')} 
+                    className="p-3 cursor-pointer hover:bg-muted/80 select-none transition-colors"
+                  >
+                    <div className="flex items-center">
+                      Modelo {renderSortIcon('Modelo')}
+                    </div>
+                  </th>
+                  <th 
+                    onClick={() => handleSort('Nº Contrato')} 
+                    className="p-3 cursor-pointer hover:bg-muted/80 select-none transition-colors"
+                  >
+                    <div className="flex items-center">
+                      Nº Contrato {renderSortIcon('Nº Contrato')}
+                    </div>
+                  </th>
+                  <th 
+                    onClick={() => handleSort('Nombre Cliente Propietario')} 
+                    className="p-3 cursor-pointer hover:bg-muted/80 select-none transition-colors"
+                  >
+                    <div className="flex items-center">
+                      Cliente Propietario {renderSortIcon('Nombre Cliente Propietario')}
+                    </div>
+                  </th>
+                  <th 
+                    onClick={() => handleSort('Nombre Cliente Ubicación')} 
+                    className="p-3 cursor-pointer hover:bg-muted/80 select-none transition-colors"
+                  >
+                    <div className="flex items-center">
+                      Ubicación {renderSortIcon('Nombre Cliente Ubicación')}
+                    </div>
+                  </th>
+                  <th 
+                    onClick={() => handleSort('Nº de horas')} 
+                    className="p-3 cursor-pointer hover:bg-muted/80 select-none transition-colors"
+                  >
+                    <div className="flex items-center">
+                      Nº Horas {renderSortIcon('Nº de horas')}
+                    </div>
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {filteredItems.map((row, idx) => (
+                {filteredAndSortedItems.map((row, idx) => (
                   <tr key={idx} className="hover:bg-muted/50 transition-colors">
                     <td className="p-3 font-medium">{row['Nº Serie'] || row['Nº prod. servicio'] || 'N/A'}</td>
                     <td className="p-3">{row['Modelo'] || 'N/A'}</td>
