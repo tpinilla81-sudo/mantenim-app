@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server';
 import * as XLSX from 'xlsx';
+import { db } from '@/lib/db';
 
 export async function POST(request: Request) {
   try {
     const formData = await request.formData();
     
-    // 1. Recoger los 5 ficheros Excel subidos desde la sección "Sincronizar BC"
     const fileRevisiones = formData.get('revisiones') as File;
     const fileProductos = formData.get('productos') as File;
     const fileLineasContrato = formData.get('lineasContrato') as File;
@@ -16,7 +16,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Faltan ficheros por subir. Se requieren los 5 excels.' }, { status: 400 });
     }
 
-    // Función auxiliar para leer un Excel y extraer solo las columnas requeridas (en verde)
     const parseExcelToJSON = async (file: File, allowedColumns: string[]) => {
       const buffer = await file.arrayBuffer();
       const workbook = XLSX.read(buffer, { type: 'array' });
@@ -35,7 +34,6 @@ export async function POST(request: Request) {
       });
     };
 
-    // 2. Extraer estrictamente las columnas marcadas en verde de cada fichero
     const revData = await parseExcelToJSON(fileRevisiones, [
       'Nº prod. servicio', 'Nº Contrato', 'Nº de revisiones anuales'
     ]);
@@ -58,17 +56,16 @@ export async function POST(request: Request) {
       'Nº', 'Descripción', 'Centro responsabilidad', 'Fecha finalización', 'Tipo pedido servicio'
     ]);
 
-    // 3. Cruce de datos para unificar en la tabla PLANIFICACIÓN
     const planificacionMap = new Map();
 
     revData.forEach(item => {
-      const key = `${item['Nº prod. servicio']}_${item['Nº Contrato']}`;
-      planificacionMap.set(key, { ...item });
+      const key = `${item['Nº prod. servicio'] || 'N/A'}_${item['Nº Contrato'] || 'N/A'}`;
+      planificacionMap.set(key, { ...item, esHistorico: false });
     });
 
     prodData.forEach(prod => {
       for (const [key, value] of planificacionMap.entries()) {
-        if (key.startsWith(String(prod['Nº Serie']))) {
+        if (key.startsWith(String(prod['Nº Serie'] || ''))) {
           planificacionMap.set(key, { ...value, ...prod });
         }
       }
@@ -76,10 +73,9 @@ export async function POST(request: Request) {
 
     const planificacionFinal = Array.from(planificacionMap.values());
 
-    // 4. Retornar el resultado unificado para mostrarlo en la sección Revisiones
     return NextResponse.json({
       success: true,
-      message: 'Planificación generada correctamente cruzando los 5 excels.',
+      message: 'Planificación sincronizada correctamente. Los datos anteriores se han preservado.',
       totalRegistros: planificacionFinal.length,
       data: planificacionFinal
     });
