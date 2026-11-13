@@ -40,25 +40,13 @@ const NAV_ITEMS: NavItem[] = [
     key: 'hoy',
     label: 'Revisiones',
     icon: Sun,
-    description: 'Revisiones programadas, vencidas y próximas',
-  },
-  {
-    key: 'equipos',
-    label: 'Equipos',
-    icon: Forklift,
-    description: 'Listado de máquinas',
+    description: 'Listado de productos con contrato vigente + revisiones',
   },
   {
     key: 'logicas',
     label: 'Lógicas',
     icon: Cog,
     description: 'Reglas de cálculo de revisiones',
-  },
-  {
-    key: 'contratos',
-    label: 'Contratos',
-    icon: FileText,
-    description: 'Productos de servicio + condiciones',
   },
   {
     key: 'sync',

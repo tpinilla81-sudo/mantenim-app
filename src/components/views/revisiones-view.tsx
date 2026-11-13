@@ -32,6 +32,7 @@ import {
 } from '@/components/ui/select'
 import { EstadoBadge } from '@/components/shared/estado-badge'
 import { LineasContratoSheet } from '@/components/shared/lineas-contrato-sheet'
+import { ListadoConsolidadoSheet } from '@/components/shared/listado-consolidado-sheet'
 import { EQUIPO_TIPOS, formatFecha, diasHasta } from '@/lib/constants'
 import { cn } from '@/lib/utils'
 
@@ -116,7 +117,7 @@ export function RevisionesView() {
   const [diasWindow, setDiasWindow] = useState('60')
   // Toggle de hoja: 'calendario' (vista tradicional) o 'contratos' (hoja de
   // equipos con contrato de mantenimiento, con los mismos campos que EquiposView)
-  const [hoja, setHoja] = useState<'calendario' | 'contratos'>('calendario')
+  const [hoja, setHoja] = useState<'listado' | 'calendario' | 'contratos'>('listado')
 
   const url = useMemo(() => {
     const params = new URLSearchParams()
@@ -153,7 +154,16 @@ export function RevisionesView() {
   return (
     <div className="p-4 lg:p-8 space-y-5 max-w-[1400px]">
       {/* Toggle de hoja */}
-      <div className="flex items-center gap-2 border-b border-border pb-3">
+      <div className="flex items-center gap-2 border-b border-border pb-3 flex-wrap">
+        <Button
+          variant={hoja === 'listado' ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => setHoja('listado')}
+          className={hoja === 'listado' ? '' : 'text-muted-foreground'}
+        >
+          <FileSpreadsheet className="w-4 h-4 mr-1.5" />
+          Listado
+        </Button>
         <Button
           variant={hoja === 'calendario' ? 'default' : 'outline'}
           size="sm"
@@ -161,7 +171,7 @@ export function RevisionesView() {
           className={hoja === 'calendario' ? '' : 'text-muted-foreground'}
         >
           <CalendarClock className="w-4 h-4 mr-1.5" />
-          Calendario de revisiones
+          Calendario
         </Button>
         <Button
           variant={hoja === 'contratos' ? 'default' : 'outline'}
@@ -174,7 +184,9 @@ export function RevisionesView() {
         </Button>
       </div>
 
-      {hoja === 'contratos' ? (
+      {hoja === 'listado' ? (
+        <ListadoConsolidadoSheet />
+      ) : hoja === 'contratos' ? (
         <LineasContratoSheet />
       ) : (
         <>
