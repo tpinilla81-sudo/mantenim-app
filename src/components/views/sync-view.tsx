@@ -291,11 +291,30 @@ export function SyncView() {
           saltadas?: number
           conEquipoMatch?: number
           conClienteMatch?: number
+          crossCheck?: {
+            lineasFirmadas: number
+            productosConContratoFirmado: number
+            equiposConProductoBC: number
+            equiposConContratoFirmado: number
+            equiposActualizadosTipo: number
+            equiposSinContratoFirmado: number
+            breakdownPorGrupo: Record<string, number>
+          }
         }
+        const cc = r.crossCheck
+        const gruposTxt = cc
+          ? Object.entries(cc.breakdownPorGrupo)
+              .sort((a, b) => b[1] - a[1])
+              .slice(0, 4)
+              .map(([g, n]) => `${g}: ${n}`)
+              .join(' · ')
+          : ''
         toast.success(
-          `${successMsg}: ${r.creadas ?? 0} nuevas, ${r.actualizadas ?? 0} actualizadas, ${r.saltadas ?? 0} omitidas`,
+          `${successMsg}: ${r.creadas ?? 0} nuevas, ${r.actualizadas ?? 0} actualizadas`,
           {
-            description: `Matches: ${r.conEquipoMatch ?? 0} equipos, ${r.conClienteMatch ?? 0} clientes`,
+            description: cc
+              ? `Cross-check: ${cc.equiposConContratoFirmado}/${cc.equiposConProductoBC} equipos con contrato Firmado · ${cc.equiposActualizadosTipo} tipos actualizados · ${cc.equiposSinContratoFirmado} sin contrato · ${gruposTxt}`
+              : `Matches: ${r.conEquipoMatch ?? 0} equipos, ${r.conClienteMatch ?? 0} clientes`,
           }
         )
       } else if (excelType === 'revisiones') {

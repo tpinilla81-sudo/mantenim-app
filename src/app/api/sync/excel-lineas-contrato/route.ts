@@ -229,6 +229,111 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // =====================================================
+    // FASE 2: CROSS-CHECK contra equipos
+    //
+    // Para cada equipo con codigoProductoBC, buscar si existe alguna línea
+    // con estadoContrato="Firmado" y mismo numeroProductoServicio. Si la
+    // hay, actualizar contratoActivoId y tipoRevision del equipo según el
+    // codGrupoContrato:
+    //   - M1/M2/M3.../FSCR/FSSR → POR_CONTRATO
+    //   - ALQCORTO/ALQLARGO/COMERCIAL/TALLER/STAND BY/MBAT → POR_HORAS
+    // (preservando tipoRevisionManual si el usuario lo marcó a mano).
+    // =====================================================
+
+    // Regex para grupos que son POR_CONTRATO (revisiones periódicas por calendario)
+    const GRUPO_POR_CONTRATO = /^(M\d+|FSCR|FSSR)$/i
+
+    const lineasFirmadas = await db.lineaContrato.findMany({
+      where: {
+        estadoContrato: { contains: 'Firmado', mode: 'insensitive' },
+        numeroProductoServicio: { not: '' },
+      },
+      select: {
+        numeroProductoServicio: true,
+        numeroContrato: true,
+        codGrupoContrato: true,
+        numeroSerie: true,
+      },
+    })
+
+    // Índice numeroProductoServicio → lista de contratos firmados
+    // (un producto puede aparecer en varios contratos; nos quedamos con el primero)
+    const productoAContrato = new Map<
+      string,
+      { numeroContrato: string; codGrupoContrato: string | null; numeroSerie: string | null }
+    >()
+    for (const lf of lineasFirmadas) {
+      const prod = (lf.numeroProductoServicio || '').trim()
+      if (!prod) continue
+      if (!productoAContrato.has(prod)) {
+        productoAContrato.set(prod, {
+          numeroContrato: lf.numeroContrato,
+          codGrupoContrato: lf.codGrupoContrato,
+          numeroSerie: lf.numeroSerie,
+        })
+      }
+    }
+
+    // Cargar todos los equipos con codigoProductoBC y comparar
+    const equiposConProducto = await db.equipo.findMany({
+      where: { codigoProductoBC: { not: null } },
+      select: {
+        id: true,
+        codigoProductoBC: true,
+        tipoRevision: true,
+        tipoRevisionManual: true,
+        contratoActivoId: true,
+      },
+    })
+
+    let equiposConContratoFirmado = 0
+    let equiposActualizadosTipo = 0
+    let equiposSinContratoFirmado = 0
+    const breakdownPorGrupo: Record<string, number> = {}
+    const equiposSinContratoList: { codigo: string; productoBC: string }[] = []
+
+    for (const eq of equiposConProducto) {
+      const producto = (eq.codigoProductoBC || '').trim()
+      if (!producto) continue
+      const match = productoAContrato.get(producto)
+      if (match) {
+        equiposConContratoFirmado++
+        const grupo = (match.codGrupoContrato || '').toUpperCase()
+        breakdownPorGrupo[grupo || 'SIN_GRUPO'] =
+          (breakdownPorGrupo[grupo || 'SIN_GRUPO'] || 0) + 1
+
+        // Determinar tipo de revisión según el grupo
+        const nuevoTipo: 'POR_CONTRATO' | 'POR_HORAS' = GRUPO_POR_CONTRATO.test(grupo)
+          ? 'POR_CONTRATO'
+          : 'POR_HORAS'
+
+        // Actualizar contratoActivoId siempre; tipoRevision solo si no es manual
+        const updateData: Record<string, unknown> = {
+          contratoActivoId: match.numeroContrato,
+        }
+        if (!eq.tipoRevisionManual && eq.tipoRevision !== nuevoTipo) {
+          updateData.tipoRevision = nuevoTipo
+          equiposActualizadosTipo++
+        }
+        // Solo hacer update si hay cambios reales
+        if (
+          eq.contratoActivoId !== match.numeroContrato ||
+          (!eq.tipoRevisionManual && eq.tipoRevision !== nuevoTipo)
+        ) {
+          await db.equipo.update({ where: { id: eq.id }, data: updateData as any })
+        }
+      } else {
+        equiposSinContratoFirmado++
+        if (equiposSinContratoList.length < 50) {
+          equiposSinContratoList.push({
+            codigo: eq.codigoProductoBC || '',
+            productoBC: eq.codigoProductoBC || '',
+          })
+        }
+      }
+    }
+
     return NextResponse.json({
       ok: true,
       rowsTotal: rows.length,
@@ -238,6 +343,17 @@ export async function POST(request: NextRequest) {
       conEquipoMatch,
       conClienteMatch,
       gruposDetectados: Array.from(gruposDetectados),
+      // Resultado del cross-check
+      crossCheck: {
+        lineasFirmadas: lineasFirmadas.length,
+        productosConContratoFirmado: productoAContrato.size,
+        equiposConProductoBC: equiposConProducto.length,
+        equiposConContratoFirmado,
+        equiposActualizadosTipo,
+        equiposSinContratoFirmado,
+        breakdownPorGrupo,
+        equiposSinContratoList: equiposSinContratoList.slice(0, 50),
+      },
       errores: errores.slice(0, 20),
     })
   } catch (err) {
