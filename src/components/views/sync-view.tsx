@@ -111,8 +111,10 @@ export function SyncView() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   // Default: INCREMENTAL (preserva datos manuales). reemplazoTotal=false
   const [reemplazoTotal, setReemplazoTotal] = useState(false)
-  // Tipo de Excel a subir: 'contratos' (Excel 1), 'equipos' (Excel 2) o 'flexible' (auto-detecta columnas)
-  const [excelType, setExcelType] = useState<'contratos' | 'equipos' | 'flexible'>('contratos')
+  // Tipo de Excel a subir: 'contratos' (Excel 1), 'equipos' (Excel 2),
+  // 'flexible' (auto-detecta), 'lineas' (Líneas de Contrato BC) o
+  // 'revisiones' (Últimas revisiones realizadas).
+  const [excelType, setExcelType] = useState<'contratos' | 'equipos' | 'flexible' | 'lineas' | 'revisiones'>('contratos')
   const [previewResult, setPreviewResult] = useState<{ columnsDetected: Array<{header: string; field: string; entity: string}>; columnsNotDetected: string[]; rowsTotal: number } | null>(null)
   const [uploading, setUploading] = useState(false)
   const [recalculando, setRecalculando] = useState(false)
@@ -242,10 +244,25 @@ export function SyncView() {
     try {
       const formData = new FormData()
       formData.append('file', selectedFile)
-      const endpoint = excelType === 'equipos'
-        ? '/api/sync/excel-equipos'
-        : '/api/sync/excel'
-      formData.append('syncType', excelType === 'equipos' ? 'EXCEL_BC_EQUIPOS' : 'EXCEL_BC')
+
+      // Ruteo según tipo de Excel
+      let endpoint: string
+      let successMsg: string
+      if (excelType === 'equipos') {
+        endpoint = '/api/sync/excel-equipos'
+        formData.append('syncType', 'EXCEL_BC_EQUIPOS')
+        successMsg = 'Equipos sincronizados'
+      } else if (excelType === 'lineas') {
+        endpoint = '/api/sync/excel-lineas-contrato'
+        successMsg = 'Líneas de contrato importadas'
+      } else if (excelType === 'revisiones') {
+        endpoint = '/api/sync/excel-ultimas-revisiones'
+        successMsg = 'Últimas revisiones importadas'
+      } else {
+        endpoint = '/api/sync/excel'
+        formData.append('syncType', 'EXCEL_BC')
+        successMsg = 'Contratos sincronizados'
+      }
       formData.append('reemplazoTotal', String(reemplazoTotal))
 
       setProgress(40)
@@ -265,9 +282,41 @@ export function SyncView() {
 
       setProgress(100)
       setLastResult(json as SyncResult)
-      toast.success(
-        `Sincronización completada: ${(json as SyncResult).contratosNuevos + (json as SyncResult).contratosActualizados} contratos procesados`
-      )
+
+      // Mensaje de éxito según el tipo
+      if (excelType === 'lineas') {
+        const r = json as {
+          creadas?: number
+          actualizadas?: number
+          saltadas?: number
+          conEquipoMatch?: number
+          conClienteMatch?: number
+        }
+        toast.success(
+          `${successMsg}: ${r.creadas ?? 0} nuevas, ${r.actualizadas ?? 0} actualizadas, ${r.saltadas ?? 0} omitidas`,
+          {
+            description: `Matches: ${r.conEquipoMatch ?? 0} equipos, ${r.conClienteMatch ?? 0} clientes`,
+          }
+        )
+      } else if (excelType === 'revisiones') {
+        const r = json as {
+          procesadas?: number
+          equiposActualizados?: number
+          revisionesCompletadasCreadas?: number
+          noEncontrados?: number
+          recalcLanzado?: number
+        }
+        toast.success(
+          `${successMsg}: ${r.equiposActualizados ?? 0} equipos actualizados, ${r.revisionesCompletadasCreadas ?? 0} revisiones registradas`,
+          {
+            description: `${r.recalcLanzado ?? 0} recálculos lanzados · ${r.noEncontrados ?? 0} series no encontradas`,
+          }
+        )
+      } else {
+        toast.success(
+          `${successMsg}: ${(json as SyncResult).contratosNuevos + (json as SyncResult).contratosActualizados} contratos procesados`
+        )
+      }
       setSelectedFile(null)
       refetchAll()
     } catch (err) {
@@ -432,10 +481,12 @@ export function SyncView() {
         <CardContent className="pt-0 space-y-4">
           {/* Guía de 3 pasos */}
           <div className="bg-sky-50 border border-sky-200 rounded-md p-3 text-[12px] text-sky-900 space-y-1">
-            <p className="font-semibold text-sky-900">Flujo mensual recomendado (3 pasos):</p>
+            <p className="font-semibold text-sky-900">Flujo mensual recomendado (5 pasos):</p>
             <p><strong>1.</strong> Subir <strong>Excel 1</strong> "Contratos de servicio" → actualiza contratos</p>
             <p><strong>2.</strong> Subir <strong>Excel 2</strong> "Líneas de Contratos de Servicio Internos" → actualiza equipos y horas</p>
-            <p><strong>3.</strong> Pulsar <strong>"Recalcular tipos de revisión"</strong> para reclasificar M1/M2</p>
+            <p><strong>3.</strong> Subir <strong>Excel 3</strong> "Lista Líneas de Contrato" → vuelca todas las líneas (con grupo M1/M2/FSCR/FSSR, fechas y período)</p>
+            <p><strong>4.</strong> Subir <strong>Excel 4</strong> "Últimas revisiones" → actualiza última revisión por equipo y recalcula próximas</p>
+            <p><strong>5.</strong> Pulsar <strong>"Recalcular tipos de revisión"</strong> para reclasificar M1/M2</p>
             <p className="text-sky-700 mt-1">La sincronización <strong>preserva</strong> tu trabajo manual: horas actualizadas, revisiones completadas, M1/M2 marcados a mano, notas.</p>
           </div>
 
@@ -459,6 +510,24 @@ export function SyncView() {
               className="h-8"
             >
               Excel 2 · Equipos
+            </Button>
+            <Button
+              type="button"
+              variant={excelType === 'lineas' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => { setExcelType('lineas'); setSelectedFile(null); setPreviewResult(null) }}
+              className="h-8 border-violet-300 text-violet-700 hover:bg-violet-50"
+            >
+              Excel 3 · Líneas contrato
+            </Button>
+            <Button
+              type="button"
+              variant={excelType === 'revisiones' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => { setExcelType('revisiones'); setSelectedFile(null); setPreviewResult(null) }}
+              className="h-8 border-amber-300 text-amber-700 hover:bg-amber-50"
+            >
+              Excel 4 · Últimas revisiones
             </Button>
             <Button
               type="button"
@@ -513,7 +582,11 @@ export function SyncView() {
                     ? 'Excel 1: "Contratos de servicio" — Lista de contratos con su grupo (M1/M2, ALQLARGO...)'
                     : excelType === 'equipos'
                       ? 'Excel 2: "Líneas de Contratos de Servicio Internos" — Vínculo contrato ↔ máquina con horas'
-                      : '⚡ Excel flexible: cualquier exportación de BC con cualquier combinación de columnas. La app detecta automáticamente qué campos actualizar por Nº de Producto/Cliente/Serie/Contrato.'}
+                      : excelType === 'lineas'
+                        ? 'Excel 3: "Lista Líneas de Contrato" exportado de BC. 15 columnas: Estado, Nº Contrato, Nº cliente, Nombre Cliente, Ship-to Code, Cód. grupo contrato, Contract Starting/Ending Date, Nº línea, Nº prod. servicio, Descripción, Nº Serie, Fecha inicial, Periodo servicio, Siguiente fecha serv. planif.'
+                        : excelType === 'revisiones'
+                          ? 'Excel 4: "Últimas revisiones" — una fila por equipo. Columnas: Nº Serie (req.), Fecha última revisión (req.), Horas (opc.), Tipo servicio (opc. M1/M2/FSCR/FSSR/500H/1000H), Notas (opc.). La app actualiza ultimaRevision, crea RevisionProgramada COMPLETADA y recalcula la próxima.'
+                          : '⚡ Excel flexible: cualquier exportación de BC con cualquier combinación de columnas. La app detecta automáticamente qué campos actualizar por Nº de Producto/Cliente/Serie/Contrato.'}
                 </p>
               </div>
             )}

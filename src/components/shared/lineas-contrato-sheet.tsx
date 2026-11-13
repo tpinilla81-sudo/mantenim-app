@@ -1,6 +1,6 @@
 'use client'
 
-// Hoja de Líneas de Contrato de mantenimiento.
+// Hoja de Líneas de Contrato de mantenimiento (solo lectura).
 //
 // Muestra EXACTAMENTE los 15 campos del Excel "Lista Líneas de Contrato"
 // de Business Central, con el mismo formato que EquiposView:
@@ -8,13 +8,12 @@
 //   - Cabecera sticky con fondo marcado
 //   - table-fixed + colgroup con porcentajes = sin scroll horizontal
 //
-// Botón "Importar Excel" para subir el archivo BC y volcarlo a la tabla
-// LineaContrato (upsert por contrato+nº línea).
+// La importación del Excel se hace desde la sección "Sincronizar BC"
+// (SyncView) seleccionando el tipo "Excel 3 · Líneas contrato".
 
-import { useState, useMemo, useRef } from 'react'
+import { useState, useMemo } from 'react'
 import { useFetch } from '@/lib/use-fetch'
-import { toast } from 'sonner'
-import { Upload, FileSpreadsheet, Filter, Loader2, Trash2 } from 'lucide-react'
+import { FileSpreadsheet, Filter } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import {
@@ -24,16 +23,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import {
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-} from '@/components/ui/popover'
-import { Input } from '@/components/ui/input'
-import { Checkbox } from '@/components/ui/checkbox'
 import { cn } from '@/lib/utils'
 import { ColumnFilterHeader } from '@/components/shared/equipos-table-shared'
-import { ConfirmDialog } from '@/components/shared/confirm-dialog'
 
 interface LineaContrato {
   id: string
@@ -56,8 +47,6 @@ interface LineaContrato {
   siguienteFechaServicio: string | null
 }
 
-// Las 15 columnas exactas del Excel, en el mismo orden.
-// El `key` coincide con el campo del modelo LineaContrato.
 const COLS: Array<{ key: keyof LineaContrato; title: string; width: string }> = [
   { key: 'estadoContrato',          title: 'Estado contrato',     width: '5%' },
   { key: 'numeroContrato',          title: 'Nº Contrato',         width: '7%' },
@@ -76,12 +65,8 @@ const COLS: Array<{ key: keyof LineaContrato; title: string; width: string }> = 
   { key: 'siguienteFechaServicio',  title: 'Siguiente fecha serv. planif.', width: '6%' },
 ]
 
-// Total: 5+7+5+12+5+6+7+7+4+5+12+9+6+4+6 = 100%
-
-// Formatea fechas ISO (YYYY-MM-DDTHH:mm:ss.sssZ o YYYY-MM-DD) a DD/MM/YYYY
 function fmtFecha(iso: string | null): string {
   if (!iso) return '—'
-  // Solo la parte de fecha
   const d = new Date(iso)
   if (isNaN(d.getTime())) return iso
   return d.toLocaleDateString('es-ES', {
@@ -91,7 +76,6 @@ function fmtFecha(iso: string | null): string {
   })
 }
 
-// Devuelve el valor mostrable de una columna para una línea.
 function getCell(lc: LineaContrato, col: keyof LineaContrato): string {
   const v = lc[col]
   if (v == null || v === '') return '—'
@@ -108,18 +92,13 @@ function getCell(lc: LineaContrato, col: keyof LineaContrato): string {
 
 export function LineasContratoSheet() {
   const [colFilters, setColFilters] = useState<Record<string, string[]>>({})
-  const [importing, setImporting] = useState(false)
-  const [clearing, setClearing] = useState(false)
-  const [showClearConfirm, setShowClearConfirm] = useState(false)
-  const fileRef = useRef<HTMLInputElement>(null)
 
-  const { data: resp, loading, error, refetch } = useFetch<{ data: LineaContrato[]; total: number }>(
+  const { data: resp, loading, error } = useFetch<{ data: LineaContrato[]; total: number }>(
     '/api/lineas-contrato?limit=50000'
   )
 
   const allData = resp?.data || []
 
-  // Valores únicos por columna para los dropdowns
   const uniqueValues = useMemo(() => {
     const map: Record<string, string[]> = {}
     for (const c of COLS) {
@@ -130,7 +109,6 @@ export function LineasContratoSheet() {
     return map
   }, [allData])
 
-  // Filtrado client-side por columna (Excel autofilter)
   const data = useMemo(() => {
     return allData.filter((lc) => {
       for (const [col, selected] of Object.entries(colFilters)) {
@@ -157,62 +135,6 @@ export function LineasContratoSheet() {
   }
   const clearAllFilters = () => setColFilters({})
 
-  // Importar Excel
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setImporting(true)
-    try {
-      const formData = new FormData()
-      formData.append('file', file)
-      formData.append('replaceAll', 'false')
-      const res = await fetch('/api/sync/excel-lineas-contrato', {
-        method: 'POST',
-        body: formData,
-      })
-      const json = await res.json()
-      if (!res.ok) throw new Error(json.error || json.detail || `Error ${res.status}`)
-      toast.success(
-        `Excel importado: ${json.creadas} nuevas, ${json.actualizadas} actualizadas, ${json.saltadas} omitidas`,
-        {
-          description: `Matches: ${json.conEquipoMatch} equipos, ${json.conClienteMatch} clientes · Grupos: ${(json.gruposDetectados || []).slice(0, 6).join(', ')}${(json.gruposDetectados || []).length > 6 ? '...' : ''}`,
-        }
-      )
-      refetch()
-    } catch (err) {
-      toast.error('Error al importar Excel', { description: (err as Error).message })
-    } finally {
-      setImporting(false)
-      if (fileRef.current) fileRef.current.value = ''
-    }
-  }
-
-  // Limpiar tabla (borrar todas las líneas)
-  const handleClearAll = async () => {
-    setShowClearConfirm(false)
-    setClearing(true)
-    try {
-      // Llamar al endpoint POST con replaceAll=true y sin archivo no funciona;
-      // mejor: GET no soporta DELETE masivo → usamos el mismo endpoint con
-      // replaceAll=true requiere archivo. Para evitar ese lío, hacemos un
-      // DELETE directo a /api/lineas-contrato (aún no existe) → mejor usar
-      // el upsert en modo reemplazo importando el Excel vacío. Pero para
-      // simplificar, hacemos un fetch DELETE al endpoint colectivo.
-      const res = await fetch('/api/lineas-contrato', { method: 'DELETE' })
-      const json = await res.json()
-      if (!res.ok) throw new Error(json.error)
-      toast.success(`Tabla vaciada: ${json.deleted} líneas eliminadas`)
-      refetch()
-    } catch (err) {
-      // Si el DELETE no existe, intentar importando Excel vacío con replaceAll
-      toast.error('No se pudo vaciar la tabla desde aquí', {
-        description: 'Usa "Importar Excel" con un archivo nuevo para reemplazar los datos.',
-      })
-    } finally {
-      setClearing(false)
-    }
-  }
-
   return (
     <div className="space-y-4">
       {/* Toolbar */}
@@ -236,44 +158,11 @@ export function LineasContratoSheet() {
             Limpiar filtros ({activeFilterCount})
           </Button>
         )}
-        <div className="flex-1" />
-        {allData.length > 0 && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowClearConfirm(true)}
-            disabled={clearing || importing}
-            className="text-rose-600 hover:text-rose-700 hover:bg-rose-50 border-rose-200"
-          >
-            <Trash2 className="w-3.5 h-3.5 mr-1.5" />
-            Vaciar tabla
-          </Button>
-        )}
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => fileRef.current?.click()}
-          disabled={importing}
-        >
-          {importing ? (
-            <>
-              <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
-              Importando...
-            </>
-          ) : (
-            <>
-              <Upload className="w-4 h-4 mr-1.5" />
-              Importar Excel
-            </>
-          )}
-        </Button>
-        <input
-          ref={fileRef}
-          type="file"
-          accept=".xlsx,.xls"
-          className="hidden"
-          onChange={handleUpload}
-        />
+        <p className="text-[11px] text-muted-foreground lg:ml-auto">
+          {allData.length === 0
+            ? 'Para cargar datos: Sincronizar BC → Excel 3 · Líneas contrato'
+            : 'Para actualizar: Sincronizar BC → Excel 3 · Líneas contrato'}
+        </p>
       </div>
 
       {/* Tabla */}
@@ -297,15 +186,9 @@ export function LineasContratoSheet() {
               </p>
               <p className="text-[12px] text-muted-foreground mt-1 max-w-md mx-auto">
                 {allData.length === 0
-                  ? 'Pulsa "Importar Excel" y sube el archivo "Lista Líneas de Contrato" exportado desde Business Central.'
+                  ? 'Ve a la sección "Sincronizar BC" y sube el Excel "Lista Líneas de Contrato" (tipo Excel 3 · Líneas contrato).'
                   : 'Limpia los filtros para ver todas las líneas.'}
               </p>
-              {allData.length === 0 && (
-                <Button className="mt-4" onClick={() => fileRef.current?.click()} disabled={importing}>
-                  <Upload className="w-4 h-4 mr-1.5" />
-                  Importar Excel
-                </Button>
-              )}
             </div>
           ) : (
             <div
@@ -380,16 +263,6 @@ export function LineasContratoSheet() {
           )}
         </CardContent>
       </Card>
-
-      <ConfirmDialog
-        open={showClearConfirm}
-        title="Vaciar tabla de líneas de contrato"
-        description={`Se borrarán TODAS las ${allData.length} líneas de contrato. Esta acción no se puede deshacer. ¿Estás seguro?`}
-        confirmText="Sí, vaciar tabla"
-        destructive
-        onConfirm={handleClearAll}
-        onCancel={() => setShowClearConfirm(false)}
-      />
     </div>
   )
 }
