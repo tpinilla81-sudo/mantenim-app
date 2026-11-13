@@ -1,5 +1,10 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import {
+  cargarLogicasActivas,
+  encontrarLogicaAplicable,
+  calcularProximaRevision as calcularProximaRevisionConLogica,
+} from '@/lib/logicas-engine'
 
 // POST /api/sync/recalcular-tipos-revision
 // Recorre todos los equipos, usa su contratoActivoId (CMI##/##### del Excel 2)
@@ -35,6 +40,10 @@ interface RecalcResult {
   marcadosPorContrato: number
   marcadosPorHoras: number
   revisionesRecalculadas: number
+  // Métricas nuevas del motor de Lógicas
+  equiposConLogicaAplicada: number
+  equiposConLegacyFallback: number
+  logicaAplicadaNombres: Record<string, number>
   errores: string[]
 }
 
@@ -110,8 +119,14 @@ export async function POST() {
       marcadosPorContrato: 0,
       marcadosPorHoras: 0,
       revisionesRecalculadas: 0,
+      equiposConLogicaAplicada: 0,
+      equiposConLegacyFallback: 0,
+      logicaAplicadaNombres: {},
       errores: [],
     }
+
+    // Cargar lógicas activas (motor de cálculo)
+    const logicas = await cargarLogicasActivas()
 
     // Cargar todos los contratos en memoria para lookup rápido por "numero"
     const contratos = await db.contrato.findMany({
@@ -137,6 +152,7 @@ export async function POST() {
       select: {
         id: true,
         codigo: true,
+        tipo: true,
         horasUso: true,
         ultimaRevision: true,
         contratoActivoId: true,
@@ -180,6 +196,94 @@ export async function POST() {
             }
           }
         }
+
+        // ============================================================
+        // FASE LÓGICAS: intentar usar el motor de lógicas primero.
+        // Si hay una lógica activa aplicable al equipo (por tipoEquipo +
+        // esMaquinaPropia), usarla para calcular la próxima revisión.
+        // Si no hay lógica aplicable, caer al cálculo legacy de abajo.
+        // ============================================================
+        const logicaAplicable = encontrarLogicaAplicable(logicas, {
+          tipo: eq.tipo,
+          esMaquinaPropia: eq.esMaquinaPropia || false,
+        })
+
+        if (logicaAplicable && !eq.tipoRevisionManual) {
+          // Usar el motor de lógicas
+          const resultado = calcularProximaRevisionConLogica(
+            logicaAplicable,
+            {
+              id: eq.id,
+              tipo: eq.tipo,
+              esMaquinaPropia: eq.esMaquinaPropia || false,
+              horasUso: eq.horasUso,
+              horasAnualesEstimadas: eq.horasAnualesEstimadas,
+              ultimaRevision: eq.ultimaRevision,
+              revisionesContratadasAnual: eq.revisionesContratadasAnual,
+              umbralHorasActual: eq.umbralHorasActual,
+            },
+            contratoEncontrado?.fechaInicio || null,
+          )
+
+          // Actualizar equipo con el resultado del motor
+          await db.equipo.update({
+            where: { id: eq.id },
+            data: {
+              tipoRevision: resultado.tipoRevision,
+              umbralHorasActual: resultado.umbralHorasActual,
+              proximaRevisionHoras: resultado.proximaRevisionHoras,
+              proximaRevisionFecha: resultado.proximaRevisionFecha,
+              ...(contratoEncontrado?.clienteId
+                ? { clienteId: contratoEncontrado.clienteId }
+                : {}),
+            },
+          })
+          result.actualizados++
+          result.equiposConLogicaAplicada++
+          result.logicaAplicadaNombres[logicaAplicable.nombre] =
+            (result.logicaAplicadaNombres[logicaAplicable.nombre] || 0) + 1
+          if (resultado.tipoRevision === 'POR_CONTRATO') result.marcadosPorContrato++
+          else result.marcadosPorHoras++
+
+          // Borrar revisiones PROGRAMADAS previas y crear nueva
+          await db.revisionProgramada.deleteMany({
+            where: { equipoId: eq.id, estado: 'PROGRAMADA' },
+          })
+          if (resultado.proximaRevisionFecha) {
+            await db.revisionProgramada.create({
+              data: {
+                equipoId: eq.id,
+                tipo: resultado.tipoRevision,
+                nivel: resultado.nivel,
+                horasObjetivo: resultado.proximaRevisionHoras,
+                fechaProgramada: resultado.proximaRevisionFecha,
+                estado: 'PROGRAMADA',
+              },
+            })
+            result.revisionesRecalculadas++
+          }
+
+          // Vincular equipo al contrato si lo encontramos
+          if (contratoEncontrado) {
+            const vinculoExistente = await db.contratoEquipo.findUnique({
+              where: {
+                contratoId_equipoId: {
+                  contratoId: contratoEncontrado.id,
+                  equipoId: eq.id,
+                },
+              },
+              select: { id: true },
+            })
+            if (!vinculoExistente) {
+              await db.contratoEquipo.create({
+                data: { contratoId: contratoEncontrado.id, equipoId: eq.id },
+              })
+            }
+          }
+          continue // Saltar el cálculo legacy
+        }
+
+        result.equiposConLegacyFallback++
 
         // ============================================================
         // Si el equipo tiene tipoRevisionManual=true, NO sobreescribir el tipo

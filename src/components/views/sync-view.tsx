@@ -367,8 +367,18 @@ export function SyncView() {
       const res = await fetch('/api/sync/recalcular-tipos-revision', { method: 'POST' })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error)
+      const logicaCount = json.equiposConLogicaAplicada ?? 0
+      const legacyCount = json.equiposConLegacyFallback ?? 0
+      const topLogicas = Object.entries(json.logicaAplicadaNombres || {})
+        .sort((a: any, b: any) => b[1] - a[1])
+        .slice(0, 3)
+        .map(([n, c]: any) => `${n.split('—')[0].trim()}: ${c}`)
+        .join(' · ')
       toast.success(
-        `Recálculo completado: ${json.marcadosPorContrato} por contrato · ${json.marcadosPorHoras} por horas`
+        `Recálculo completado: ${json.marcadosPorContrato} por contrato · ${json.marcadosPorHoras} por horas`,
+        {
+          description: `Motor de Lógicas: ${logicaCount} equipos · Legacy fallback: ${legacyCount} · Revisiones reprogramadas: ${json.revisionesRecalculadas}${topLogicas ? ' · Top: ' + topLogicas : ''}`,
+        }
       )
       refetchAll()
     } catch (err) {
@@ -505,7 +515,7 @@ export function SyncView() {
             <p><strong>2.</strong> Subir <strong>Excel 2</strong> "Líneas de Contratos de Servicio Internos" → actualiza equipos y horas</p>
             <p><strong>3.</strong> Subir <strong>Excel 3</strong> "Lista Líneas de Contrato" → vuelca todas las líneas (con grupo M1/M2/FSCR/FSSR, fechas y período)</p>
             <p><strong>4.</strong> Subir <strong>Excel 4</strong> "Últimas revisiones" → actualiza última revisión por equipo y recalcula próximas</p>
-            <p><strong>5.</strong> Pulsar <strong>"Recalcular tipos de revisión"</strong> para reclasificar M1/M2</p>
+            <p><strong>5.</strong> Pulsar <strong>"Recalcular tipos de revisión"</strong> → usa el <strong>motor de Lógicas</strong> para reprogramar la próxima revisión de cada equipo (con contrato Firmado) según su última revisión y su tipo de contrato. Los resultados aparecen en la sección <strong>Revisiones</strong>.</p>
             <p className="text-sky-700 mt-1">La sincronización <strong>preserva</strong> tu trabajo manual: horas actualizadas, revisiones completadas, M1/M2 marcados a mano, notas.</p>
           </div>
 
