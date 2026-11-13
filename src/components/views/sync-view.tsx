@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useState } from 'react';
 
 export function SyncView() {
@@ -20,6 +22,10 @@ export function SyncView() {
       const result = await response.json();
 
       if (response.ok && result.success) {
+        // Guardar los registros en localStorage para que la vista de Revisiones los lea
+        if (result.data) {
+          localStorage.setItem('mantenim_planificacion_data', JSON.stringify(result.data));
+        }
         setResultMessage(`Registrados. Se han procesado ${result.totalRegistros} registros. Ya puedes actualizar la aplicación.`);
       } else {
         setResultMessage(`Error: ${result.error || 'Desconocido'}`);
@@ -33,9 +39,11 @@ export function SyncView() {
 
   return (
     <div className="space-y-6 p-6">
-      <h2 className="text-2xl font-bold tracking-tight">Sincronizar BC</h2>
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-bold tracking-tight">Sincronizar BC (5 Excels)</h2>
+        <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded font-medium">Versión Activa</span>
+      </div>
       
-      {/* Sincronización inteligente: Subida de los 5 excels a la vez */}
       <div className="p-6 bg-card border rounded-lg shadow-sm">
         <h3 className="text-lg font-semibold mb-2">Sincronización inteligente con Business Central</h3>
         <p className="text-sm text-muted-foreground mb-4">
@@ -92,7 +100,6 @@ export function SyncView() {
         </form>
       </div>
 
-      {/* Historial de sincronizaciones (Limitado a 5 líneas) */}
       <div className="p-6 bg-card border rounded-lg shadow-sm">
         <h3 className="text-lg font-semibold mb-3">Historial de sincronizaciones</h3>
         <div className="border rounded divide-y text-sm">
@@ -121,3 +128,5 @@ export function SyncView() {
     </div>
   );
 }
+
+export default SyncView;
