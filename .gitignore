@@ -70,3 +70,4 @@ server.log
 
 # Vercel functions
 .vercel/
+tool-results/
