@@ -1042,3 +1042,76 @@ function ResultMetric({ label, value, color }: { label: string; value: number; c
     </div>
   )
 }
+function PlanificacionSyncSection() {
+  const [loading, setLoading] = React.useState(false);
+  const [resultMessage, setResultMessage] = React.useState<string | null>(null);
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setLoading(true);
+    setResultMessage(null);
+
+    const formData = new FormData(e.currentTarget);
+
+    try {
+      const response = await fetch('/api/sync/planificacion', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const result = await response.json();
+
+      if (response.ok && result.success) {
+        setResultMessage(`¡Planificación generada con éxito! Se procesaron ${result.totalRegistros} registros.`);
+      } else {
+        setResultMessage(`Error: ${result.error || 'Desconocido'}`);
+      }
+    } catch (error: any) {
+      setResultMessage(`Error de red: ${error.message}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="mt-8 p-6 bg-card border rounded-lg shadow-sm">
+      <h3 className="text-lg font-semibold mb-4">Sincronización Planificación (5 Excels BC)</h3>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium mb-1">1. Revisiones.xlsx</label>
+            <input type="file" name="revisiones" accept=".xlsx" required className="w-full text-sm border rounded p-2" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">2. Productos de Servicio.xlsx</label>
+            <input type="file" name="productos" accept=".xlsx" required className="w-full text-sm border rounded p-2" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">3. Lista Líneas de Contrato.xlsx</label>
+            <input type="file" name="lineasContrato" accept=".xlsx" required className="w-full text-sm border rounded p-2" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">4. Pedidos servicio.xlsx</label>
+            <input type="file" name="pedidos" accept=".xlsx" required className="w-full text-sm border rounded p-2" />
+          </div>
+          <div className="md:col-span-2">
+            <label className="block text-sm font-medium mb-1">5. Pedidos Servicio Registrados.xlsx</label>
+            <input type="file" name="pedidosReg" accept=".xlsx" required className="w-full text-sm border rounded p-2" />
+          </div>
+        </div>
+
+        <button
+          type="submit"
+          disabled={loading}
+          className="px-4 py-2 bg-primary text-primary-foreground rounded hover:bg-primary/90 disabled:opacity-50 font-medium"
+        >
+          {loading ? 'Procesando y cruzando...' : 'Generar Planificación y Sincronizar'}
+        </button>
+
+        {resultMessage && (
+          <p className="mt-2 text-sm font-semibold text-emerald-600">{resultMessage}</p>
+        )}
+      </form>
+    </div>
+  );
+}
