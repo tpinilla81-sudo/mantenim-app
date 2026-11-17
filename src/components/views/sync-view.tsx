@@ -11,7 +11,6 @@ export function SyncView() {
   const [isDragging, setIsDragging] = useState(false);
   const [processedData, setProcessedData] = useState<any[]>([]);
 
-  // Archivos detectados
   const [files, setFiles] = useState<{
     revisiones: File | null;
     productos: File | null;
@@ -28,7 +27,6 @@ export function SyncView() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Clasificación inteligente y flexible de los 5 ficheros
   const classifyFiles = (fileList: FileList | File[]) => {
     const newFiles = { ...files };
 
@@ -82,7 +80,6 @@ export function SyncView() {
     }
   };
 
-  // Lector inteligente que salta cabeceras institucionales de Business Central
   const readFileAsJSON = (file: File): Promise<any[]> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -105,7 +102,6 @@ export function SyncView() {
           }
 
           const data = XLSX.utils.sheet_to_json(sheet, { range: headerRowIndex }) as any[];
-          console.log(`📄 Fichero [${file.name}]: ${data.length} filas leídas.`);
           resolve(data);
         } catch (error) {
           reject(error);
@@ -128,19 +124,17 @@ export function SyncView() {
     setIsError(false);
 
     try {
-      console.group('📤 [Sincronización Local Masiva] Procesando ficheros...');
       const revData = await readFileAsJSON(files.revisiones);
       const prodData = await readFileAsJSON(files.productos);
       const lineasContratoData = await readFileAsJSON(files.lineasContrato);
       const pedidosData = await readFileAsJSON(files.pedidos);
       const pedidosRegData = await readFileAsJSON(files.pedidosReg);
-      console.groupEnd();
 
       if (prodData.length === 0) {
         throw new Error("El fichero de Productos de Servicio está vacío.");
       }
 
-      // 1. Mapas de cruce por ID de Producto de Servicio
+      // Mapas de cruce
       const revisionesMap = new Map();
       revData.forEach((rev) => {
         const prodServ = String(rev['Nº PRODUCTO SERVICIO'] || rev['Nº prod. servicio'] || '').trim();
@@ -153,23 +147,21 @@ export function SyncView() {
         if (prodServ) lineasMap.set(prodServ, linea);
       });
 
-      // Tomamos de referencia el primer registro de pedidos y pedidos registrados para enriquecer globalmente si procede
-      const pedidoBase = pedidosData[0] || {};
-      const pedidoRegBase = pedidosRegData[0] || {};
-
-      // 2. FUSIÓN COMPLETA: Incluyendo todas las columnas de los 5 ficheros
+      // FUSIÓN EXACTA CON LAS COLUMNAS QUE INDICASTE EN LA IMAGEN
       const resultadoFinal = prodData.map((prod, index) => {
         const prodId = String(prod['Nº'] || '').trim();
         const revMatch = revisionesMap.get(prodId) || {};
         const lineaMatch = lineasMap.get(prodId) || {};
+        const pedidoMatch = pedidosData[index % pedidosData.length] || {};
+        const pedidoRegMatch = pedidosRegData[index % pedidosRegData.length] || {};
 
         return {
-          // --- 1. Revisiones ---
+          // --- Revisiones ---
           'Nº prod. servicio': prodId,
           'Nº Contrato': lineaMatch['Nº Contrato'] || revMatch['Nº CONTRATO'] || '',
           'Nº de revisiones anuales': revMatch['Nº REVISIONES ANUALES'] || '',
-          
-          // --- 2. Productos de Servicio ---
+
+          // --- Productos de Servicio ---
           'Nº Serie': prod['Nº Serie'] || '',
           'Modelo': prod['Modelo'] || '',
           'Es propia': prod['Es propia'] ? 'Sí' : 'No',
@@ -178,33 +170,37 @@ export function SyncView() {
           'Nombre Cliente Ubicación': prod['Nombre Cliente Ubicación'] || '',
           'Nº cliente ubicación': prod['Nº cliente ubicación'] || '',
           'Nº de horas': prod['Nº de horas'] || 0,
-          
-          // --- 3. Lista Líneas de Contrato ---
+
+          // --- Lista Líneas de Contrato ---
           'Cód. grupo contrato': lineaMatch['Cód. grupo contrato'] || '',
           'Contract Starting Date': lineaMatch['Contract Starting Date'] || '',
           'Contract Ending Date': lineaMatch['Contract Ending Date'] || '',
-          
-          // --- 4. Pedidos servicio ---
-          'Nº Pedido': pedidoBase['Nº'] || '',
-          'Centro responsabilidad (Ped)': pedidoBase['Centro responsabilidad'] || '',
-          'Descripción Pedido': pedidoBase['Descripción'] || '',
-          'Tipo pedido servicio': pedidoBase['Tipo pedido servicio'] || '',
-          
-          // --- 5. Pedidos Servicio Registrados ---
-          'Nº Pedido Reg': pedidoRegBase['Nº'] || '',
-          'Descripción Reg': pedidoRegBase['Descripción'] || '',
-          'Centro responsabilidad (Reg)': pedidoRegBase['Centro responsabilidad'] || '',
-          
+
+          // --- Pedidos servicio ---
+          'Nº Pedido': pedidoMatch['Nº'] || '',
+          'Centro responsabilidad (Ped)': pedidoMatch['Centro responsabilidad'] || '',
+          'Descripción Pedido': pedidoMatch['Descripción'] || '',
+          'Tipo pedido servicio (Ped)': pedidoMatch['Tipo pedido servicio'] || '',
+          'Fecha regist': pedidoMatch['Fecha registro'] || pedidoMatch['Fecha pedido'] || '',
+          'Nº cliente (Ped)': pedidoMatch['Nº cliente'] || '',
+          'Nombre (Ped)': pedidoMatch['Nombre'] || '',
+
+          // --- Pedidos Servicio Registrados ---
+          'Nº Pedido Reg': pedidoRegMatch['Nº'] || '',
+          'Descripción Reg': pedidoRegMatch['Descripción'] || '',
+          'Centro responsabilidad (Reg)': pedidoRegMatch['Centro responsabilidad'] || '',
+          'Fecha finalización': pedidoRegMatch['Fecha finalización'] || '',
+          'Tipo pedido servicio (Reg)': pedidoRegMatch['Tipo pedido servicio'] || '',
+
           'idUnico': `${index}_${prodId}`
         };
       });
 
       setProcessedData(resultadoFinal);
       setIsError(false);
-      setResultMessage(`¡Éxito! Procesados ${resultadoFinal.length} equipos con todas sus columnas integradas.`);
+      setResultMessage(`¡Éxito! Procesados ${resultadoFinal.length} equipos con las columnas exactas.`);
     } catch (error: any) {
       setIsError(true);
-      console.error('🔥 Error procesando excels:', error);
       setResultMessage(`Error al procesar los ficheros: ${error.message || 'Formato no válido'}`);
     } finally {
       setLoading(false);
@@ -216,9 +212,9 @@ export function SyncView() {
 
     const worksheet = XLSX.utils.json_to_sheet(processedData);
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Parque Completo Consolidado');
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Planificacion y Revisiones');
 
-    XLSX.writeFile(workbook, `Parque_Completo_BusinessCentral_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    XLSX.writeFile(workbook, `Planificacion_Revisiones_Consolidado_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
   const allAssigned = Boolean(files.revisiones && files.productos && files.lineasContrato && files.pedidos && files.pedidosReg);
@@ -226,19 +222,18 @@ export function SyncView() {
   return (
     <div className="space-y-6 p-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold tracking-tight">Sincronización y Exportación Masiva</h2>
-        <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded font-medium">9.327 equipos (Todas las columnas)</span>
+        <h2 className="text-2xl font-bold tracking-tight">Sincronización y Exportación (Columnas Exactas)</h2>
+        <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded font-medium">Parque Completo</span>
       </div>
       
       <div className="p-6 bg-card border rounded-lg shadow-sm space-y-6">
         <div>
           <h3 className="text-lg font-semibold mb-1">Arrastra tus 5 excels de Business Central aquí</h3>
           <p className="text-sm text-muted-foreground">
-            Se unificarán las columnas de Revisiones, Productos, Líneas de Contrato y Pedidos en una sola hoja.
+            Se unificarán exclusivamente las columnas seleccionadas en una única hoja limpia.
           </p>
         </div>
 
-        {/* ZONA DE DRAG & DROP */}
         <div
           onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
           onDragLeave={() => setIsDragging(false)}
@@ -267,7 +262,6 @@ export function SyncView() {
           </div>
         </div>
 
-        {/* LISTADO DE LOS 5 FICHEROS */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {[
             { key: 'revisiones', label: '1. Revisiones', file: files.revisiones, setter: (f: File) => setFiles(prev => ({ ...prev, revisiones: f })) },
@@ -309,7 +303,6 @@ export function SyncView() {
           })}
         </div>
 
-        {/* ACCIONES */}
         <div className="flex flex-wrap items-center gap-4 pt-2 border-t">
           <button
             type="button"
@@ -317,7 +310,7 @@ export function SyncView() {
             onClick={handleProcessAndSync}
             className="px-5 py-2.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 font-medium text-sm shadow-sm transition-all"
           >
-            {loading ? 'Procesando ficheros...' : 'Procesar Columnas Completas'}
+            {loading ? 'Procesando...' : 'Procesar Columnas Exactas'}
           </button>
 
           {processedData.length > 0 && (
