@@ -104,7 +104,7 @@ export function SyncView() {
           }
 
           const data = XLSX.utils.sheet_to_json(sheet, { range: headerRowIndex }) as any[];
-          console.log(`📄 Fichero [${file.name}]:${data.length} filas leídas.`);
+          console.log(`📄 Fichero [${file.name}]: ${data.length} filas leídas.`);
           resolve(data);
         } catch (error) {
           reject(error);
@@ -153,24 +153,29 @@ export function SyncView() {
         if (prodServ) lineasMap.set(prodServ, linea);
       });
 
-      // 3. MAPEO OPTIMIZADO: Guardamos solo los campos esenciales para evitar superar la cuota de localStorage
-      const resultadoFinal = prodData.map((prod, index) => {
-        const prodId = String(prod['Nº'] || '').trim();
-        const revMatch = revisionesMap.get(prodId) || {};
-        const lineaMatch = lineasMap.get(prodId) || {};
+      // 3. MAPEO OPTIMIZADO Y FILTRADO (excluyendo fuera de servicio para aligerar peso y cuota)
+      const resultadoFinal = prodData
+        .filter((prod) => {
+          const fueraServicio = prod['Fuera de Servicio'];
+          return fueraServicio !== true && fueraServicio !== 'Sí' && fueraServicio !== '1';
+        })
+        .map((prod, index) => {
+          const prodId = String(prod['Nº'] || '').trim();
+          const revMatch = revisionesMap.get(prodId) || {};
+          const lineaMatch = lineasMap.get(prodId) || {};
 
-        return {
-          'Nº prod. servicio': prodId,
-          'Nº Serie': prod['Nº Serie'] || '',
-          'Modelo': prod['Modelo'] || '',
-          'Nº Contrato': lineaMatch['Nº Contrato'] || revMatch['Nº CONTRATO'] || '',
-          'Nombre Cliente Propietario': prod['Nombre Cliente Propietario'] || prod['Nombre'] || '',
-          'Nombre Cliente Ubicación': prod['Nombre Cliente Ubicación'] || '',
-          'Nº de horas': prod['Nº de horas'] || 0,
-          fuente: 'Parque Completo',
-          idUnico: `${index}_${prodId}`
-        };
-      });
+          return {
+            'Nº prod. servicio': prodId,
+            'Nº Serie': String(prod['Nº Serie'] || ''),
+            'Modelo': String(prod['Modelo'] || ''),
+            'Nº Contrato': String(lineaMatch['Nº Contrato'] || revMatch['Nº CONTRATO'] || ''),
+            'Nombre Cliente Propietario': String(prod['Nombre Cliente Propietario'] || prod['Nombre'] || ''),
+            'Nombre Cliente Ubicación': String(prod['Nombre Cliente Ubicación'] || ''),
+            'Nº de horas': prod['Nº de horas'] || 0,
+            fuente: 'Parque Activo',
+            idUnico: `${index}_${prodId}`
+          };
+        });
 
       // Guardado optimizado en localStorage
       const jsonString = JSON.stringify(resultadoFinal);
@@ -178,4 +183,136 @@ export function SyncView() {
       console.log(`✅ Guardados con éxito ${resultadoFinal.length} registros optimizados en localStorage.`);
 
       setIsError(false);
-      setResultMessage(`¡Éxito! Se han procesado y guardado los ${resultadoFinal.length
+      setResultMessage(`¡Éxito! Se han procesado y guardado los ${resultadoFinal.length} equipos activos. Ya puedes consultar la sección de Planificación.`);
+    } catch (error: any) {
+      setIsError(true);
+      console.error('🔥 Error procesando excels:', error);
+      setResultMessage(`Error al procesar los ficheros: ${error.message || 'Formato no válido'}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const allAssigned = Boolean(files.revisiones && files.productos && files.lineasContrato && files.pedidos && files.pedidosReg);
+
+  return (
+    <div className="space-y-6 p-6">
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-bold tracking-tight">Sincronización Masiva (Arrastrar y Soltar)</h2>
+        <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded font-medium">Modo Local Inteligente</span>
+      </div>
+      
+      <div className="p-6 bg-card border rounded-lg shadow-sm space-y-6">
+        <div>
+          <h3 className="text-lg font-semibold mb-1">Arrastra tus 5 excels de Business Central aquí</h3>
+          <p className="text-sm text-muted-foreground">
+            Suelta los archivos de golpe. Se cargará el parque completo y activo de máquinas.
+          </p>
+        </div>
+
+        {/* ZONA DE DRAG & DROP */}
+        <div
+          onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+          onDragLeave={() => setIsDragging(false)}
+          onDrop={handleDrop}
+          onClick={() => fileInputRef.current?.click()}
+          className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all ${
+            isDragging ? 'border-primary bg-primary/5 scale-[1.01]' : 'border-muted-foreground/30 hover:border-primary/50 bg-muted/20'
+          }`}
+        >
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept=".xlsx, .xls"
+            onChange={handleFileSelect}
+            className="hidden"
+          />
+          <div className="flex flex-col items-center justify-center space-y-3">
+            <div className="p-4 bg-primary/10 rounded-full text-primary">
+              <Upload className="w-8 h-8" />
+            </div>
+            <div>
+              <p className="text-base font-semibold">Arrastra los 5 excels aquí o haz clic para buscarlos</p>
+              <p className="text-xs text-muted-foreground mt-1">Soporta selección múltiple simultánea (.xlsx, .xls)</p>
+            </div>
+          </div>
+        </div>
+
+        {/* LISTADO DE LOS 5 FICHEROS */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {[
+            { key: 'revisiones', label: '1. Revisiones', file: files.revisiones, setter: (f: File) => setFiles(prev => ({ ...prev, revisiones: f })) },
+            { key: 'productos', label: '2. Productos de Servicio', file: files.productos, setter: (f: File) => setFiles(prev => ({ ...prev, productos: f })) },
+            { key: 'lineasContrato', label: '3. Líneas de Contrato', file: files.lineasContrato, setter: (f: File) => setFiles(prev => ({ ...prev, lineasContrato: f })) },
+            { key: 'pedidos', label: '4. Pedidos de Servicio', file: files.pedidos, setter: (f: File) => setFiles(prev => ({ ...prev, pedidos: f })) },
+            { key: 'pedidosReg', label: '5. Pedidos Registrados', file: files.pedidosReg, setter: (f: File) => setFiles(prev => ({ ...prev, pedidosReg: f })) },
+          ].map((item) => {
+            const inputId = `file-input-${item.key}`;
+            return (
+              <div 
+                key={item.key} 
+                onClick={() => document.getElementById(inputId)?.click()}
+                className={`p-3 border rounded-lg flex items-center justify-between text-sm cursor-pointer transition-all hover:border-primary ${
+                  item.file ? 'bg-emerald-50/50 border-emerald-200 text-emerald-900' : 'bg-muted/30 text-muted-foreground border-dashed'
+                }`}
+              >
+                <input 
+                  id={inputId} 
+                  type="file" 
+                  accept=".xlsx, .xls" 
+                  className="hidden" 
+                  onChange={(e) => {
+                    if (e.target.files?.[0]) {
+                      item.setter(e.target.files[0]);
+                    }
+                  }} 
+                />
+                <div className="flex items-center space-x-2 truncate">
+                  <FileSpreadsheet className={`w-4 h-4 flex-shrink-0 ${item.file ? 'text-emerald-600' : 'text-muted-foreground'}`} />
+                  <div className="truncate">
+                    <p className="font-semibold text-xs">{item.label}</p>
+                    <p className="text-xs truncate opacity-80">{item.file ? item.file.name : 'Haz clic o suelta aquí...'}</p>
+                  </div>
+                </div>
+                {item.file && <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 ml-2" />}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* ACCIONES */}
+        <div className="flex items-center gap-4 pt-2 border-t">
+          <button
+            type="button"
+            disabled={loading || !allAssigned}
+            onClick={handleProcessAndSync}
+            className="px-5 py-2.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 font-medium text-sm shadow-sm transition-all"
+          >
+            {loading ? 'Procesando los 5 ficheros...' : 'Procesar y Sincronizar Todo'}
+          </button>
+          
+          <button
+            type="button"
+            onClick={() => {
+              setFiles({ revisiones: null, productos: null, lineasContrato: null, pedidos: null, pedidosReg: null });
+              setResultMessage(null);
+            }}
+            className="px-4 py-2.5 border rounded-lg hover:bg-muted font-medium text-sm"
+          >
+            Reiniciar selección
+          </button>
+        </div>
+
+        {resultMessage && (
+          <div className={`p-4 border rounded-lg text-sm font-medium flex items-start space-x-2 ${isError ? 'bg-destructive/10 text-destructive border-destructive/20' : 'bg-emerald-50 text-emerald-800 border-emerald-200'}`}>
+            {isError ? <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" /> : <CheckCircle2 className="w-5 h-5 flex-shrink-0 mt-0.5" />}
+            <span>{resultMessage}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default SyncView;
