@@ -27,7 +27,7 @@ export function SyncView() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Clasificación inteligente y flexible de los 5 ficheros adaptada a tus nombres reales
+  // Clasificación inteligente y flexible de los 5 ficheros
   const classifyFiles = (fileList: FileList | File[]) => {
     const newFiles = { ...files };
 
@@ -51,7 +51,6 @@ export function SyncView() {
       }
     });
 
-    // Fallback por orden secuencial si no se detectaron por nombre exacto
     const unassignedFiles = Array.from(fileList).filter(f => 
       !Object.values(newFiles).includes(f)
     );
@@ -82,7 +81,6 @@ export function SyncView() {
     }
   };
 
-  // Lector inteligente adaptado a las cabeceras reales de Business Central
   const readFileAsJSON = (file: File): Promise<any[]> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -136,35 +134,43 @@ export function SyncView() {
       const pedidosRegData = await readFileAsJSON(files.pedidosReg);
       console.groupEnd();
 
-      if (revData.length === 0) {
-        throw new Error("El fichero de Revisiones está vacío o no se ha podido leer ninguna fila.");
+      if (prodData.length === 0) {
+        throw new Error("El fichero de Productos de Servicio está vacío.");
       }
 
-      // Normalizar productos de servicio por ID y por Serie para un cruce infalible
-      const productosMap = new Map();
-      prodData.forEach((prod) => {
-        const prodId = String(prod['Nº'] || '').trim();
-        const serie = String(prod['Nº Serie'] || '').trim();
-        const info = { ...prod };
-        if (prodId) productosMap.set(prodId, info);
-        if (serie) productosMap.set(serie, info);
+      // 1. Mapa de Revisiones por ID de Producto de Servicio
+      const revisionesMap = new Map();
+      revData.forEach((rev) => {
+        const prodServ = String(rev['Nº PRODUCTO SERVICIO'] || rev['Nº prod. servicio'] || '').trim();
+        if (prodServ) {
+          revisionesMap.set(prodServ, rev);
+        }
       });
 
-      // Cruce optimizado: Mapeamos todas las revisiones y unificamos con los catálogos correspondientes
-      const resultadoFinal = revData.map((item, index) => {
-        const prodServicioRev = String(item['Nº PRODUCTO SERVICIO'] || item['Nº prod. servicio'] || '').trim();
-        const contratoRev = String(item['Nº CONTRATO'] || item['Nº Contrato'] || '').trim();
+      // 2. Mapa de Líneas de Contrato por ID de Producto de Servicio
+      const lineasMap = new Map();
+      lineasContratoData.forEach((linea) => {
+        const prodServ = String(linea['Nº prod. servicio'] || linea['Nº PRODUCTO SERVICIO'] || '').trim();
+        if (prodServ) {
+          lineasMap.set(prodServ, linea);
+        }
+      });
 
-        // Buscamos datos del producto relacionado
-        const prodMatch = productosMap.get(prodServicioRev) || {};
+      // 3. BASE PRINCIPAL: Todos los productos de servicio (propias, sin contrato, clientes, etc.)
+      const resultadoFinal = prodData.map((prod, index) => {
+        const prodId = String(prod['Nº'] || '').trim();
+        
+        // Buscamos si tiene datos cruzados en revisiones o líneas de contrato
+        const revMatch = revisionesMap.get(prodId) || {};
+        const lineaMatch = lineasMap.get(prodId) || {};
 
         return {
-          ...item,
-          ...prodMatch,
-          'Nº Contrato': contratoRev || prodMatch['Nº Contrato'],
-          'Nº prod. servicio': prodServicioRev,
-          fuente: 'Revisiones',
-          idUnico: `${index}_${prodServicioRev}_${contratoRev}`
+          ...prod, // Datos del producto (Modelo, Nº Serie, Es propia, etc.)
+          ...lineaMatch, // Datos de contrato (Estado contrato, Nº Contrato, etc.)
+          ...revMatch, // Datos de revisiones anuales
+          'Nº prod. servicio': prodId,
+          fuente: 'Parque Completo',
+          idUnico: `${index}_${prodId}`
         };
       });
 
@@ -172,7 +178,7 @@ export function SyncView() {
       console.log(`✅ Guardados con éxito ${resultadoFinal.length} registros en localStorage.`);
 
       setIsError(false);
-      setResultMessage(`¡Éxito! Se han procesado y unificado ${resultadoFinal.length} registros. Ya puedes consultar la sección de Planificación.`);
+      setResultMessage(`¡Éxito! Se han procesado los ${resultadoFinal.length} equipos (propios, con contrato y sin contrato). Ya puedes consultar la sección de Planificación.`);
     } catch (error: any) {
       setIsError(true);
       console.error('🔥 Error procesando excels:', error);
@@ -195,7 +201,7 @@ export function SyncView() {
         <div>
           <h3 className="text-lg font-semibold mb-1">Arrastra tus 5 excels de Business Central aquí</h3>
           <p className="text-sm text-muted-foreground">
-            Suelta los archivos de golpe. Si alguno no se asigna automáticamente, puedes seleccionarlo haciendo clic en su casilla correspondiente.
+            Suelta los 5 archivos de golpe. Se cargará el parque completo de máquinas (propias, con contrato y sin contrato).
           </p>
         </div>
 
@@ -214,7 +220,7 @@ export function SyncView() {
             type="file"
             multiple
             accept=".xlsx, .xls"
-            onChange={fileInputRef => handleFileSelect(fileInputRef as any)}
+            onChange={handleFileSelect}
             className="hidden"
           />
           <div className="flex flex-col items-center justify-center space-y-3">
