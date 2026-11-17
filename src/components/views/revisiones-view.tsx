@@ -109,12 +109,12 @@ export function RevisionesView() {
         <div>
           <h2 className="text-2xl font-bold tracking-tight">Planificación / Revisiones</h2>
           <p className="text-sm text-muted-foreground">
-            Dataset unificado resultante de la última sincronización con Business Central.
+            Dataset unificado resultante de la sincronización con Business Central (Parque Completo).
           </p>
         </div>
         <div className="flex items-center gap-3">
           <div className="text-sm font-medium bg-muted px-3 py-1.5 rounded border">
-            Mostrando <span className="font-bold">{paginatedItems.length}</span> de <span className="font-bold">{filteredAndSortedItems.length}</span> filtrados ({items.length} total)
+            Mostrando <span className="font-bold">{paginatedItems.length}</span> de <span className="font-bold">{filteredAndSortedItems.length}</span> filtrados (<span className="font-bold text-primary">{items.length}</span> total)
           </div>
         </div>
       </div>
