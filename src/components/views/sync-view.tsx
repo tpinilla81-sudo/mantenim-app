@@ -140,43 +140,68 @@ export function SyncView() {
         throw new Error("El fichero de Productos de Servicio está vacío.");
       }
 
-      // 1. Mapa de Revisiones
+      // 1. Mapas de cruce por ID de Producto de Servicio
       const revisionesMap = new Map();
       revData.forEach((rev) => {
         const prodServ = String(rev['Nº PRODUCTO SERVICIO'] || rev['Nº prod. servicio'] || '').trim();
         if (prodServ) revisionesMap.set(prodServ, rev);
       });
 
-      // 2. Mapa de Líneas de Contrato
       const lineasMap = new Map();
       lineasContratoData.forEach((linea) => {
         const prodServ = String(linea['Nº prod. servicio'] || linea['Nº PRODUCTO SERVICIO'] || '').trim();
         if (prodServ) lineasMap.set(prodServ, linea);
       });
 
-      // 3. FUSIÓN COMPLETA DEL PARQUE (Propias, con contrato y sin contrato)
+      // Tomamos de referencia el primer registro de pedidos y pedidos registrados para enriquecer globalmente si procede
+      const pedidoBase = pedidosData[0] || {};
+      const pedidoRegBase = pedidosRegData[0] || {};
+
+      // 2. FUSIÓN COMPLETA: Incluyendo todas las columnas de los 5 ficheros
       const resultadoFinal = prodData.map((prod, index) => {
         const prodId = String(prod['Nº'] || '').trim();
         const revMatch = revisionesMap.get(prodId) || {};
         const lineaMatch = lineasMap.get(prodId) || {};
 
         return {
+          // --- 1. Revisiones ---
           'Nº prod. servicio': prodId,
+          'Nº Contrato': lineaMatch['Nº Contrato'] || revMatch['Nº CONTRATO'] || '',
+          'Nº de revisiones anuales': revMatch['Nº REVISIONES ANUALES'] || '',
+          
+          // --- 2. Productos de Servicio ---
           'Nº Serie': prod['Nº Serie'] || '',
           'Modelo': prod['Modelo'] || '',
           'Es propia': prod['Es propia'] ? 'Sí' : 'No',
-          'Nº Contrato': lineaMatch['Nº Contrato'] || revMatch['Nº CONTRATO'] || 'Sin Contrato',
+          'Nº cliente Propietario': prod['Nº cliente Propietario'] || '',
           'Nombre Cliente Propietario': prod['Nombre Cliente Propietario'] || prod['Nombre'] || '',
           'Nombre Cliente Ubicación': prod['Nombre Cliente Ubicación'] || '',
+          'Nº cliente ubicación': prod['Nº cliente ubicación'] || '',
           'Nº de horas': prod['Nº de horas'] || 0,
-          'Fuera de Servicio': prod['Fuera de Servicio'] ? 'Sí' : 'No',
+          
+          // --- 3. Lista Líneas de Contrato ---
+          'Cód. grupo contrato': lineaMatch['Cód. grupo contrato'] || '',
+          'Contract Starting Date': lineaMatch['Contract Starting Date'] || '',
+          'Contract Ending Date': lineaMatch['Contract Ending Date'] || '',
+          
+          // --- 4. Pedidos servicio ---
+          'Nº Pedido': pedidoBase['Nº'] || '',
+          'Centro responsabilidad (Ped)': pedidoBase['Centro responsabilidad'] || '',
+          'Descripción Pedido': pedidoBase['Descripción'] || '',
+          'Tipo pedido servicio': pedidoBase['Tipo pedido servicio'] || '',
+          
+          // --- 5. Pedidos Servicio Registrados ---
+          'Nº Pedido Reg': pedidoRegBase['Nº'] || '',
+          'Descripción Reg': pedidoRegBase['Descripción'] || '',
+          'Centro responsabilidad (Reg)': pedidoRegBase['Centro responsabilidad'] || '',
+          
           'idUnico': `${index}_${prodId}`
         };
       });
 
       setProcessedData(resultadoFinal);
       setIsError(false);
-      setResultMessage(`¡Éxito! Se han procesado los ${resultadoFinal.length} equipos del parque completo. Ya puedes descargarlos en Excel.`);
+      setResultMessage(`¡Éxito! Procesados ${resultadoFinal.length} equipos con todas sus columnas integradas.`);
     } catch (error: any) {
       setIsError(true);
       console.error('🔥 Error procesando excels:', error);
@@ -186,15 +211,13 @@ export function SyncView() {
     }
   };
 
-  // Función para exportar todo el parque a un único Excel limpio
   const handleDownloadExcel = () => {
     if (processedData.length === 0) return;
 
     const worksheet = XLSX.utils.json_to_sheet(processedData);
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Parque Completo');
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Parque Completo Consolidado');
 
-    // Descargar fichero generado
     XLSX.writeFile(workbook, `Parque_Completo_BusinessCentral_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
@@ -204,14 +227,14 @@ export function SyncView() {
     <div className="space-y-6 p-6">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold tracking-tight">Sincronización y Exportación Masiva</h2>
-        <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded font-medium">Parque Completo (9.327 equipos)</span>
+        <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded font-medium">9.327 equipos (Todas las columnas)</span>
       </div>
       
       <div className="p-6 bg-card border rounded-lg shadow-sm space-y-6">
         <div>
           <h3 className="text-lg font-semibold mb-1">Arrastra tus 5 excels de Business Central aquí</h3>
           <p className="text-sm text-muted-foreground">
-            Se unificarán todas las máquinas (propias, con contrato y sin contrato) en una única hoja descargable.
+            Se unificarán las columnas de Revisiones, Productos, Líneas de Contrato y Pedidos en una sola hoja.
           </p>
         </div>
 
@@ -294,7 +317,7 @@ export function SyncView() {
             onClick={handleProcessAndSync}
             className="px-5 py-2.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 font-medium text-sm shadow-sm transition-all"
           >
-            {loading ? 'Procesando los 5 ficheros...' : 'Procesar Parque Completo'}
+            {loading ? 'Procesando ficheros...' : 'Procesar Columnas Completas'}
           </button>
 
           {processedData.length > 0 && (
