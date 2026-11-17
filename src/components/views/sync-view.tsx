@@ -2,13 +2,14 @@
 
 import React, { useState, useRef } from 'react';
 import * as XLSX from 'xlsx';
-import { Upload, FileSpreadsheet, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Download } from 'lucide-react';
 
 export function SyncView() {
   const [loading, setLoading] = useState(false);
   const [resultMessage, setResultMessage] = useState<string | null>(null);
   const [isError, setIsError] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [processedData, setProcessedData] = useState<any[]>([]);
 
   // Archivos detectados
   const [files, setFiles] = useState<{
@@ -81,7 +82,7 @@ export function SyncView() {
     }
   };
 
-  // Lector inteligente que salta filas vacías o cabeceras institucionales de Business Central
+  // Lector inteligente que salta cabeceras institucionales de Business Central
   const readFileAsJSON = (file: File): Promise<any[]> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -139,51 +140,43 @@ export function SyncView() {
         throw new Error("El fichero de Productos de Servicio está vacío.");
       }
 
-      // 1. Mapa de Revisiones por ID de Producto de Servicio
+      // 1. Mapa de Revisiones
       const revisionesMap = new Map();
       revData.forEach((rev) => {
         const prodServ = String(rev['Nº PRODUCTO SERVICIO'] || rev['Nº prod. servicio'] || '').trim();
         if (prodServ) revisionesMap.set(prodServ, rev);
       });
 
-      // 2. Mapa de Líneas de Contrato por ID de Producto de Servicio
+      // 2. Mapa de Líneas de Contrato
       const lineasMap = new Map();
       lineasContratoData.forEach((linea) => {
         const prodServ = String(linea['Nº prod. servicio'] || linea['Nº PRODUCTO SERVICIO'] || '').trim();
         if (prodServ) lineasMap.set(prodServ, linea);
       });
 
-      // 3. MAPEO OPTIMIZADO Y FILTRADO (excluyendo fuera de servicio para aligerar peso y cuota)
-      const resultadoFinal = prodData
-        .filter((prod) => {
-          const fueraServicio = prod['Fuera de Servicio'];
-          return fueraServicio !== true && fueraServicio !== 'Sí' && fueraServicio !== '1';
-        })
-        .map((prod, index) => {
-          const prodId = String(prod['Nº'] || '').trim();
-          const revMatch = revisionesMap.get(prodId) || {};
-          const lineaMatch = lineasMap.get(prodId) || {};
+      // 3. FUSIÓN COMPLETA DEL PARQUE (Propias, con contrato y sin contrato)
+      const resultadoFinal = prodData.map((prod, index) => {
+        const prodId = String(prod['Nº'] || '').trim();
+        const revMatch = revisionesMap.get(prodId) || {};
+        const lineaMatch = lineasMap.get(prodId) || {};
 
-          return {
-            'Nº prod. servicio': prodId,
-            'Nº Serie': String(prod['Nº Serie'] || ''),
-            'Modelo': String(prod['Modelo'] || ''),
-            'Nº Contrato': String(lineaMatch['Nº Contrato'] || revMatch['Nº CONTRATO'] || ''),
-            'Nombre Cliente Propietario': String(prod['Nombre Cliente Propietario'] || prod['Nombre'] || ''),
-            'Nombre Cliente Ubicación': String(prod['Nombre Cliente Ubicación'] || ''),
-            'Nº de horas': prod['Nº de horas'] || 0,
-            fuente: 'Parque Activo',
-            idUnico: `${index}_${prodId}`
-          };
-        });
+        return {
+          'Nº prod. servicio': prodId,
+          'Nº Serie': prod['Nº Serie'] || '',
+          'Modelo': prod['Modelo'] || '',
+          'Es propia': prod['Es propia'] ? 'Sí' : 'No',
+          'Nº Contrato': lineaMatch['Nº Contrato'] || revMatch['Nº CONTRATO'] || 'Sin Contrato',
+          'Nombre Cliente Propietario': prod['Nombre Cliente Propietario'] || prod['Nombre'] || '',
+          'Nombre Cliente Ubicación': prod['Nombre Cliente Ubicación'] || '',
+          'Nº de horas': prod['Nº de horas'] || 0,
+          'Fuera de Servicio': prod['Fuera de Servicio'] ? 'Sí' : 'No',
+          'idUnico': `${index}_${prodId}`
+        };
+      });
 
-      // Guardado optimizado en localStorage
-      const jsonString = JSON.stringify(resultadoFinal);
-      localStorage.setItem('mantenim_planificacion_data', jsonString);
-      console.log(`✅ Guardados con éxito ${resultadoFinal.length} registros optimizados en localStorage.`);
-
+      setProcessedData(resultadoFinal);
       setIsError(false);
-      setResultMessage(`¡Éxito! Se han procesado y guardado los ${resultadoFinal.length} equipos activos. Ya puedes consultar la sección de Planificación.`);
+      setResultMessage(`¡Éxito! Se han procesado los ${resultadoFinal.length} equipos del parque completo. Ya puedes descargarlos en Excel.`);
     } catch (error: any) {
       setIsError(true);
       console.error('🔥 Error procesando excels:', error);
@@ -193,20 +186,32 @@ export function SyncView() {
     }
   };
 
+  // Función para exportar todo el parque a un único Excel limpio
+  const handleDownloadExcel = () => {
+    if (processedData.length === 0) return;
+
+    const worksheet = XLSX.utils.json_to_sheet(processedData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Parque Completo');
+
+    // Descargar fichero generado
+    XLSX.writeFile(workbook, `Parque_Completo_BusinessCentral_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
   const allAssigned = Boolean(files.revisiones && files.productos && files.lineasContrato && files.pedidos && files.pedidosReg);
 
   return (
     <div className="space-y-6 p-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold tracking-tight">Sincronización Masiva (Arrastrar y Soltar)</h2>
-        <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded font-medium">Modo Local Inteligente</span>
+        <h2 className="text-2xl font-bold tracking-tight">Sincronización y Exportación Masiva</h2>
+        <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded font-medium">Parque Completo (9.327 equipos)</span>
       </div>
       
       <div className="p-6 bg-card border rounded-lg shadow-sm space-y-6">
         <div>
           <h3 className="text-lg font-semibold mb-1">Arrastra tus 5 excels de Business Central aquí</h3>
           <p className="text-sm text-muted-foreground">
-            Suelta los archivos de golpe. Se cargará el parque completo y activo de máquinas.
+            Se unificarán todas las máquinas (propias, con contrato y sin contrato) en una única hoja descargable.
           </p>
         </div>
 
@@ -282,23 +287,34 @@ export function SyncView() {
         </div>
 
         {/* ACCIONES */}
-        <div className="flex items-center gap-4 pt-2 border-t">
+        <div className="flex flex-wrap items-center gap-4 pt-2 border-t">
           <button
             type="button"
             disabled={loading || !allAssigned}
             onClick={handleProcessAndSync}
             className="px-5 py-2.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 font-medium text-sm shadow-sm transition-all"
           >
-            {loading ? 'Procesando los 5 ficheros...' : 'Procesar y Sincronizar Todo'}
+            {loading ? 'Procesando los 5 ficheros...' : 'Procesar Parque Completo'}
           </button>
+
+          {processedData.length > 0 && (
+            <button
+              type="button"
+              onClick={handleDownloadExcel}
+              className="px-5 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium text-sm shadow-sm transition-all flex items-center gap-2"
+            >
+              <Download className="w-4 h-4" /> Descargar Excel Consolidado ({processedData.length} equipos)
+            </button>
+          )}
           
           <button
             type="button"
             onClick={() => {
               setFiles({ revisiones: null, productos: null, lineasContrato: null, pedidos: null, pedidosReg: null });
+              setProcessedData([]);
               setResultMessage(null);
             }}
-            className="px-4 py-2.5 border rounded-lg hover:bg-muted font-medium text-sm"
+            className="px-4 py-2.5 border rounded-lg hover:bg-muted font-medium text-sm ml-auto"
           >
             Reiniciar selección
           </button>
