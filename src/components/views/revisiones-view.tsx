@@ -33,11 +33,14 @@ export function RevisionesView() {
     }
   };
 
+  // Filtrado robusto sobre todas las propiedades del equipo
   const filteredData = data.filter((row) => {
-    const searchString = searchTerm.toLowerCase();
-    return Object.values(row).some((val) => 
-      String(val || '').toLowerCase().includes(searchString)
-    );
+    if (!searchTerm.trim()) return true;
+    const searchLower = searchTerm.toLowerCase().trim();
+    return Object.values(row).some((val) => {
+      if (val === null || val === undefined) return false;
+      return String(val).toLowerCase().includes(searchLower);
+    });
   });
 
   const sortedData = [...filteredData].sort((a, b) => {
@@ -66,7 +69,7 @@ export function RevisionesView() {
         <div>
           <h2 className="text-2xl font-bold tracking-tight">Planificación / Revisiones</h2>
           <p className="text-sm text-muted-foreground">
-            Listado unificado con fechas de revisión calculadas por contrato y por horas reales.
+            Listado unificado con fechas de revisión en formato europeo y filtrado activo.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -84,15 +87,23 @@ export function RevisionesView() {
         </div>
       </div>
 
-      <div className="flex items-center gap-2 bg-card border rounded-lg px-3 py-2 shadow-sm max-w-md">
+      <div className="flex items-center gap-2 bg-card border rounded-lg px-3 py-2 shadow-sm max-w-md focus-within:ring-2 focus-within:ring-primary/20">
         <Search className="w-4 h-4 text-muted-foreground shrink-0" />
         <input
           type="text"
-          placeholder="Buscar por contrato, cliente, modelo, sucursal..."
+          placeholder="Escribe para filtrar por contrato, cliente, modelo..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           className="w-full bg-transparent text-sm focus:outline-none"
         />
+        {searchTerm && (
+          <button 
+            onClick={() => setSearchTerm('')} 
+            className="text-xs text-muted-foreground hover:text-foreground px-1.5 py-0.5 rounded bg-muted cursor-pointer"
+          >
+            Limpiar
+          </button>
+        )}
       </div>
 
       <div className="bg-card border rounded-lg shadow-sm overflow-hidden">
@@ -130,7 +141,11 @@ export function RevisionesView() {
               {sortedData.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="p-8 text-center text-muted-foreground">
-                    No hay datos cargados o no coinciden con la búsqueda. Ve a <span className="font-semibold text-foreground">Sincronizar BC</span> para procesar los ficheros.
+                    {data.length === 0 ? (
+                      <>No hay datos cargados. Ve a <span className="font-semibold text-foreground">Sincronizar BC</span> para procesar los ficheros.</>
+                    ) : (
+                      <>No se ha encontrado ningún equipo que coincida con "<span className="font-semibold text-foreground">{searchTerm}</span>".</>
+                    )}
                   </td>
                 </tr>
               ) : (
