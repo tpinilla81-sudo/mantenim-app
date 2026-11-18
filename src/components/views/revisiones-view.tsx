@@ -7,10 +7,10 @@ import * as XLSX from 'xlsx';
 interface ColumnFilters {
   serie: string;
   modelo: string;
+  sucursal: string;
   contrato: string;
   propietario: string;
   ubicacion: string;
-  tipo: string;
 }
 
 export function RevisionesView() {
@@ -20,10 +20,10 @@ export function RevisionesView() {
   const [colFilters, setColFilters] = useState<ColumnFilters>({
     serie: '',
     modelo: '',
+    sucursal: '',
     contrato: '',
     propietario: '',
     ubicacion: '',
-    tipo: '',
   });
 
   const [sortField, setSortField] = useState<string>('Nº Serie');
@@ -46,6 +46,7 @@ export function RevisionesView() {
   const uniqueValues = useMemo(() => {
     const series = new Set<string>();
     const modelos = new Set<string>();
+    const sucursales = new Set<string>();
     const contratos = new Set<string>();
     const propietarios = new Set<string>();
     const ubicaciones = new Set<string>();
@@ -53,6 +54,7 @@ export function RevisionesView() {
     items.forEach(row => {
       if (row['Nº Serie']) series.add(String(row['Nº Serie']));
       if (row['Modelo']) modelos.add(String(row['Modelo']));
+      if (row['Sucursal']) sucursales.add(String(row['Sucursal']));
       if (row['Nº Contrato']) contratos.add(String(row['Nº Contrato']));
       const prop = row['Nombre Cliente Propietario'];
       if (prop) propietarios.add(String(prop));
@@ -62,6 +64,7 @@ export function RevisionesView() {
     return {
       series: Array.from(series).sort(),
       modelos: Array.from(modelos).sort(),
+      sucursales: Array.from(sucursales).sort(),
       contratos: Array.from(contratos).sort(),
       propietarios: Array.from(propietarios).sort(),
       ubicaciones: Array.from(ubicaciones).sort(),
@@ -72,23 +75,24 @@ export function RevisionesView() {
     const qGlobal = globalSearch.toLowerCase().trim();
     const qSerie = colFilters.serie.toLowerCase().trim();
     const qModelo = colFilters.modelo.toLowerCase().trim();
+    const qSucursal = colFilters.sucursal.toLowerCase().trim();
     const qContrato = colFilters.contrato.toLowerCase().trim();
     const qProp = colFilters.propietario.toLowerCase().trim();
     const qUbica = colFilters.ubicacion.toLowerCase().trim();
-    const qTipo = colFilters.tipo.toLowerCase().trim();
 
     const filtered = items.filter(row => {
       const serie = String(row['Nº Serie'] || row['Nº prod. servicio'] || '');
       const modelo = String(row['Modelo'] || '');
+      const sucursal = String(row['Sucursal'] || '');
       const contrato = String(row['Nº Contrato'] || '');
       const propietario = String(row['Nombre Cliente Propietario'] || '');
       const ubicacion = String(row['Nombre Cliente Ubicación'] || '');
-      const tipo = String(row['Tipo Registro'] || '');
 
       if (qGlobal) {
         const matchGlobal =
           serie.toLowerCase().includes(qGlobal) ||
           modelo.toLowerCase().includes(qGlobal) ||
+          sucursal.toLowerCase().includes(qGlobal) ||
           contrato.toLowerCase().includes(qGlobal) ||
           propietario.toLowerCase().includes(qGlobal) ||
           ubicacion.toLowerCase().includes(qGlobal);
@@ -97,10 +101,10 @@ export function RevisionesView() {
 
       if (qSerie && !serie.toLowerCase().includes(qSerie)) return false;
       if (qModelo && !modelo.toLowerCase().includes(qModelo)) return false;
+      if (qSucursal && !sucursal.toLowerCase().includes(qSucursal)) return false;
       if (qContrato && !contrato.toLowerCase().includes(qContrato)) return false;
       if (qProp && !propietario.toLowerCase().includes(qProp)) return false;
       if (qUbica && !ubicacion.toLowerCase().includes(qUbica)) return false;
-      if (qTipo && tipo.toLowerCase() !== qTipo) return false;
 
       return true;
     });
@@ -148,7 +152,7 @@ export function RevisionesView() {
 
   const resetAllFilters = () => {
     setGlobalSearch('');
-    setColFilters({ serie: '', modelo: '', contrato: '', propietario: '', ubicacion: '', tipo: '' });
+    setColFilters({ serie: '', modelo: '', sucursal: '', contrato: '', propietario: '', ubicacion: '' });
   };
 
   const hasActiveFilters = globalSearch !== '' || Object.values(colFilters).some(val => val !== '');
@@ -157,8 +161,8 @@ export function RevisionesView() {
     if (filteredAndSortedItems.length === 0) return;
     const worksheet = XLSX.utils.json_to_sheet(filteredAndSortedItems);
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Planificacion_Revisiones');
-    XLSX.writeFile(workbook, `Planificacion_Revisiones_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Planificacion_Contratos');
+    XLSX.writeFile(workbook, `Planificacion_Contratos_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
   const renderSortIcon = (field: string) => {
@@ -174,13 +178,13 @@ export function RevisionesView() {
         <div>
           <h2 className="text-2xl font-bold tracking-tight">Planificación / Revisiones</h2>
           <p className="text-sm text-muted-foreground">
-            Equipos en contratos (Revisiones Anuales) y máquinas propias.
+            Listado continuo de máquinas con contrato y sucursal (S01, S02...).
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
           <div className="text-sm font-medium bg-muted px-3 py-1.5 rounded border">
-            Mostrando <span className="font-bold text-primary">{filteredAndSortedItems.length}</span> de <span className="font-bold">{items.length}</span> planificados
+            Mostrando <span className="font-bold text-primary">{filteredAndSortedItems.length}</span> de <span className="font-bold">{items.length}</span> equipos
           </div>
 
           {filteredAndSortedItems.length > 0 && (
@@ -235,8 +239,8 @@ export function RevisionesView() {
                   <th onClick={() => handleSort('Modelo')} className="p-2.5 cursor-pointer hover:bg-muted/80 select-none min-w-[160px]">
                     <div className="flex items-center">Modelo {renderSortIcon('Modelo')}</div>
                   </th>
-                  <th onClick={() => handleSort('Tipo Registro')} className="p-2.5 cursor-pointer hover:bg-muted/80 select-none min-w-[130px]">
-                    <div className="flex items-center">Origen {renderSortIcon('Tipo Registro')}</div>
+                  <th onClick={() => handleSort('Sucursal')} className="p-2.5 cursor-pointer hover:bg-muted/80 select-none min-w-[120px]">
+                    <div className="flex items-center">Sucursal {renderSortIcon('Sucursal')}</div>
                   </th>
                   <th onClick={() => handleSort('Nº Contrato')} className="p-2.5 cursor-pointer hover:bg-muted/80 select-none min-w-[140px]">
                     <div className="flex items-center">Nº Contrato {renderSortIcon('Nº Contrato')}</div>
@@ -267,10 +271,9 @@ export function RevisionesView() {
                     </select>
                   </th>
                   <th className="p-1.5 font-normal">
-                    <select value={colFilters.tipo} onChange={(e) => setColFilters(p => ({ ...p, tipo: e.target.value }))} className="w-full px-1.5 py-1 border rounded bg-background">
-                      <option value="">Todos</option>
-                      <option value="Contratado">Contratado</option>
-                      <option value="Propia">Propia</option>
+                    <select value={colFilters.sucursal} onChange={(e) => setColFilters(p => ({ ...p, sucursal: e.target.value }))} className="w-full px-1.5 py-1 border rounded bg-background">
+                      <option value="">Todas</option>
+                      {uniqueValues.sucursales.map((v, i) => <option key={i} value={v}>{v}</option>)}
                     </select>
                   </th>
                   <th className="p-1.5 font-normal">
@@ -308,8 +311,8 @@ export function RevisionesView() {
                       <td className="p-2.5 font-medium">{row['Nº Serie'] || 'N/A'}</td>
                       <td className="p-2.5">{row['Modelo'] || 'N/A'}</td>
                       <td className="p-2.5">
-                        <span className={`px-2 py-0.5 text-xs rounded-full font-medium ${row['Tipo Registro'] === 'Contratado' ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'}`}>
-                          {row['Tipo Registro']}
+                        <span className="px-2 py-0.5 text-xs rounded-full font-medium bg-emerald-100 text-emerald-800">
+                          {row['Sucursal'] || 'N/A'}
                         </span>
                       </td>
                       <td className="p-2.5">{row['Nº Contrato']}</td>
