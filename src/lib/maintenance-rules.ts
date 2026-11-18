@@ -23,19 +23,29 @@ export function getActiveMaintenanceConfig(): MaintenanceRuleConfig {
   return defaultMaintenanceConfig;
 }
 
-export function calcularProximaRevisionContrato(ultimaFecha: Date | null, numRevisionesAnuales: number = 1): string {
+/**
+ * LÓGICA DE EQUIPOS CONTRATADOS:
+ * Calcula la próxima fecha de revisión en base a la última realizada y las revisiones anuales estipuladas.
+ */
+export function calcularProximaRevisionContrato(
+  ultimaFecha: Date | null, 
+  numRevisionesAnuales: number = 1
+): string {
   const baseDate = ultimaFecha && !isNaN(ultimaFecha.getTime()) ? new Date(ultimaFecha) : new Date();
+  
+  // Si se especifican revisiones anuales, calculamos el intervalo exacto de meses entre revisiones
   const revisiones = numRevisionesAnuales > 0 ? numRevisionesAnuales : 1;
   const mesesIncremento = Math.round(12 / revisiones);
+  
+  // Sumamos los meses correspondientes a la última fecha para obtener el siguiente hito de revisión
   baseDate.setMonth(baseDate.getMonth() + mesesIncremento);
+  
   return baseDate.toISOString().slice(0, 10);
 }
 
 /**
  * LÓGICA DE MÁQUINAS PROPIAS POR HORAS:
- * 1. Calcula el siguiente hito exacto de revisión (1000, 2000, 3000, etc.).
- * 2. Determina el ritmo de horas anuales de la máquina según su histórico más fiable.
- * 3. Calcula cuántos días faltan para alcanzar el hito y los proyecta desde el último registro.
+ * Calcula el siguiente hito exacto en horas (1000, 2000, 3000...) según el rendimiento anual real.
  */
 export function calcularProximaRevisionPropia(
   ultimaFechaRevision: Date | null,
@@ -45,15 +55,11 @@ export function calcularProximaRevisionPropia(
 ): string {
   const config = getActiveMaintenanceConfig();
   
-  // 1. Intervalo de horas para revisión (ej: 1000h o excepción del modelo)
   const intervaloHoras = config.horasPorRevisionPorModelo[modelo] || config.horasPorRevisionEstandar;
-  
-  // 2. Siguiente hito exacto en horas (ej: si lleva 1.250h, el hito exacto es 2.000h)
   const proximoHitoHoras = Math.floor(horasTotalesActuales / intervaloHoras) * intervaloHoras + intervaloHoras;
   const horasRestantes = proximoHitoHoras - horasTotalesActuales;
 
-  // 3. Calcular las horas que hace al año basándonos en el histórico de pedidos (registro más fiable)
-  let horasAlAno = 1200; // Valor por defecto prudencial si no hay suficiente histórico
+  let horasAlAno = 1200; 
   let fechaUltimoRegistro = new Date();
 
   if (historicoPedidos && historicoPedidos.length >= 2) {
@@ -68,16 +74,13 @@ export function calcularProximaRevisionPropia(
     
     if (diffDias > 5 && diffHoras > 0) {
       const horasPorDia = diffHoras / diffDias;
-      horasAlAno = horasPorDia * 365; // Proyección anual exacta de horas
+      horasAlAno = horasPorDia * 365;
     }
   } else if (historicoPedidos && historicoPedidos.length === 1) {
     fechaUltimoRegistro = new Date(historicoPedidos[0].fecha);
   }
 
-  // 4. Calcular los días exactos que faltan para llegar a las horas del hito
   const diasRestantes = horasAlAno > 0 ? Math.round((horasRestantes / horasAlAno) * 365) : 365;
-
-  // 5. Partir de la fecha del último registro fiable (o de la última revisión si no hay histórico) y sumar los días
   const fechaBase = !isNaN(fechaUltimoRegistro.getTime()) ? new Date(fechaUltimoRegistro) : (ultimaFechaRevision || new Date());
   fechaBase.setDate(fechaBase.getDate() + Math.max(diasRestantes, 1));
 
