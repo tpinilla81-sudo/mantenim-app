@@ -127,10 +127,15 @@ export function SyncView() {
       const revData = await readFileAsJSON(files.revisiones);
       const prodData = await readFileAsJSON(files.productos);
       const lineasContratoData = await readFileAsJSON(files.lineasContrato);
+      const pedidosData = await readFileAsJSON(files.pedidos);
+      const pedidosRegData = await readFileAsJSON(files.pedidosReg);
 
       if (prodData.length === 0) {
         throw new Error("El fichero de Productos de Servicio está vacío.");
       }
+
+      // Depuración en consola para verificar columnas exactas
+      console.log('Columnas Productos:', Object.keys(prodData[0] || {}));
 
       // 1. Mapa de Revisiones
       const revisionesMap = new Map();
@@ -157,11 +162,12 @@ export function SyncView() {
         }
       });
 
-      // 2. Mapa de Líneas de Contrato
-      const lineasMap = new Map();
+      // 2. Mapa de Líneas de Contrato (extraemos también sucursal/centro si viene ahí)
+      const lineasMap = new Map<string, { contrato: string; sucursal: string }>();
       lineasContratoData.forEach((linea) => {
         let prodServ = '';
         let numContrato = '';
+        let suc = '';
         for (const k of Object.keys(linea)) {
           const val = String(linea[k] || '').trim();
           const upper = k.toUpperCase();
@@ -171,21 +177,43 @@ export function SyncView() {
           if (upper.includes('CONTRATO') && !upper.includes('GRUPO')) {
             if (val) numContrato = val;
           }
+          if (upper.includes('SUCURSAL') || upper.includes('CENTRO') || upper.includes('DELEGACI')) {
+            if (val) suc = val;
+          }
         }
         if (prodServ) {
-          lineasMap.set(prodServ, numContrato);
+          lineasMap.set(prodServ, { contrato: numContrato, sucursal: suc });
         }
       });
 
-      // 3. Filtrado exclusivo de máquinas con contrato y extracción de sucursal
+      // 3. Mapa auxiliar por cliente desde Pedidos / Pedidos Registrados para Sucursal/Centro Responsabilidad (S01, S02...)
+      const clienteSucursalMap = new Map<string, string>();
+      [...pedidosData, ...pedidosRegData].forEach((ped) => {
+        let cli = '';
+        let suc = '';
+        for (const k of Object.keys(ped)) {
+          const val = String(ped[k] || '').trim();
+          const upper = k.toUpperCase();
+          if (upper === 'Nº CLIENTE' || upper === 'CLIENTE') cli = val;
+          if (upper.includes('SUCURSAL') || upper.includes('CENTRO') || upper.includes('DELEGACI')) {
+            if (val) suc = val;
+          }
+        }
+        if (cli && suc && !clienteSucursalMap.has(cli)) {
+          clienteSucursalMap.set(cli, suc);
+        }
+      });
+
+      // 4. Filtrado exclusivo de máquinas con contrato y extracción multi-fuente de Sucursal
       const resultadoFinal: any[] = [];
       
       prodData.forEach((prod, index) => {
         let prodId = '';
         let serie = '';
         let modelo = '';
-        let sucursal = '';
+        let sucursalProd = '';
         let propietario = '';
+        let numCliente = '';
         let ubicacion = '';
         let horas = 0;
 
@@ -199,10 +227,12 @@ export function SyncView() {
             serie = val;
           } else if (upperKey.includes('MODELO')) {
             modelo = val;
-          } else if (upperKey.includes('SUCURSAL')) {
-            sucursal = val;
+          } else if (upperKey.includes('SUCURSAL') || upperKey.includes('DELEGACI') || upperKey.includes('CENTRO')) {
+            if (val) sucursalProd = val;
           } else if (upperKey.includes('PROPIETARIO') && upperKey.includes('NOMBRE')) {
             propietario = val;
+          } else if (upperKey.includes('CLIENTE') && upperKey.includes('Nº')) {
+            if (!numCliente) numCliente = val;
           } else if (upperKey.includes('UBICACIÓN') && upperKey.includes('NOMBRE')) {
             ubicacion = val;
           } else if (upperKey.includes('HORAS')) {
@@ -217,16 +247,21 @@ export function SyncView() {
 
         if (prodId) {
           const contratoRev = revisionesMap.get(prodId);
-          const contratoLinea = lineasMap.get(prodId);
-          const contratoFinal = contratoLinea || contratoRev;
+          const lineaInfo = lineasMap.get(prodId);
+          const contratoFinal = lineaInfo?.contrato || contratoRev;
 
-          // REGLA ESTRICTA: Solo los que tienen contrato en revisiones
-          if (contratoRev !== undefined || contratoLinea !== undefined) {
+          if (contratoRev !== undefined || lineaInfo !== undefined) {
+            const sucursalFinal =
+              sucursalProd ||
+              lineaInfo?.sucursal ||
+              (numCliente ? clienteSucursalMap.get(numCliente) : '') ||
+              'Sin Asignar';
+
             resultadoFinal.push({
               'Nº prod. servicio': prodId,
               'Nº Serie': serie || prodId,
               'Modelo': modelo || 'N/A',
-              'Sucursal': sucursal || 'S01',
+              'Sucursal': sucursalFinal,
               'Nº Contrato': contratoFinal || 'Sin Contrato',
               'Nombre Cliente Propietario': propietario || 'N/A',
               'Nombre Cliente Ubicación': ubicacion || 'N/A',
@@ -241,9 +276,11 @@ export function SyncView() {
       const jsonString = JSON.stringify(resultadoFinal);
       localStorage.setItem('mantenim_planificacion_data', jsonString);
 
+      const sucursalesDetectadas = Array.from(new Set(resultadoFinal.map(r => r['Sucursal']))).join(', ');
+
       setProcessedData(resultadoFinal);
       setIsError(false);
-      setResultMessage(`¡Éxito! Procesados y guardados ${resultadoFinal.length} equipos con contrato.`);
+      setResultMessage(`¡Éxito! Guardados ${resultadoFinal.length} equipos. Sucursales detectadas: [${sucursalesDetectadas}].`);
     } catch (error: any) {
       setIsError(true);
       setResultMessage(`Error al procesar los ficheros: ${error.message || 'Formato no válido'}`);
@@ -255,4 +292,140 @@ export function SyncView() {
   const handleDownloadExcel = () => {
     if (processedData.length === 0) return;
 
-    const worksheet
+    const worksheet = XLSX.utils.json_to_sheet(processedData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Planificacion_Contratos');
+    XLSX.writeFile(workbook, `Planificacion_Contratos_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
+  const allAssigned = Boolean(files.revisiones && files.productos && files.lineasContrato && files.pedidos && files.pedidosReg);
+
+  return (
+    <div className="space-y-6 p-6">
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-bold tracking-tight">Sincronización (Solo Contratos)</h2>
+        <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded font-medium">Filtro de Contratos y Sucursal</span>
+      </div>
+      
+      <div className="p-6 bg-card border rounded-lg shadow-sm space-y-6">
+        <div>
+          <h3 className="text-lg font-semibold mb-1">Arrastra tus 5 excels de Business Central aquí</h3>
+          <p className="text-sm text-muted-foreground">
+            Se aislarán exclusivamente los equipos con contrato de revisión anual y su sucursal/delegación.
+          </p>
+        </div>
+
+        <div
+          onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+          onDragLeave={() => setIsDragging(false)}
+          onDrop={handleDrop}
+          onClick={() => fileInputRef.current?.click()}
+          className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all ${
+            isDragging ? 'border-primary bg-primary/5 scale-[1.01]' : 'border-muted-foreground/30 hover:border-primary/50 bg-muted/20'
+          }`}
+        >
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept=".xlsx, .xls"
+            onChange={handleFileSelect}
+            className="hidden"
+          />
+          <div className="flex flex-col items-center justify-center space-y-3">
+            <div className="p-4 bg-primary/10 rounded-full text-primary">
+              <Upload className="w-8 h-8" />
+            </div>
+            <div>
+              <p className="text-base font-semibold">Arrastra los 5 excels aquí o haz clic para buscarlos</p>
+              <p className="text-xs text-muted-foreground mt-1">Soporta selección múltiple simultánea (.xlsx, .xls)</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {[
+            { key: 'revisiones', label: '1. Revisiones', file: files.revisiones, setter: (f: File) => setFiles(prev => ({ ...prev, revisiones: f })) },
+            { key: 'productos', label: '2. Productos de Servicio', file: files.productos, setter: (f: File) => setFiles(prev => ({ ...prev, productos: f })) },
+            { key: 'lineasContrato', label: '3. Líneas de Contrato', file: files.lineasContrato, setter: (f: File) => setFiles(prev => ({ ...prev, lineasContrato: f })) },
+            { key: 'pedidos', label: '4. Pedidos de Servicio', file: files.pedidos, setter: (f: File) => setFiles(prev => ({ ...prev, pedidos: f })) },
+            { key: 'pedidosReg', label: '5. Pedidos Registrados', file: files.pedidosReg, setter: (f: File) => setFiles(prev => ({ ...prev, pedidosReg: f })) },
+          ].map((item) => {
+            const inputId = `file-input-${item.key}`;
+            return (
+              <div 
+                key={item.key} 
+                onClick={() => document.getElementById(inputId)?.click()}
+                className={`p-3 border rounded-lg flex items-center justify-between text-sm cursor-pointer transition-all hover:border-primary ${
+                  item.file ? 'bg-emerald-50/50 border-emerald-200 text-emerald-900' : 'bg-muted/30 text-muted-foreground border-dashed'
+                }`}
+              >
+                <input 
+                  id={inputId} 
+                  type="file" 
+                  accept=".xlsx, .xls" 
+                  className="hidden" 
+                  onChange={(e) => {
+                    if (e.target.files?.[0]) {
+                      item.setter(e.target.files[0]);
+                    }
+                  }} 
+                />
+                <div className="flex items-center space-x-2 truncate">
+                  <FileSpreadsheet className={`w-4 h-4 flex-shrink-0 ${item.file ? 'text-emerald-600' : 'text-muted-foreground'}`} />
+                  <div className="truncate">
+                    <p className="font-semibold text-xs">{item.label}</p>
+                    <p className="text-xs truncate opacity-80">{item.file ? item.file.name : 'Haz clic o suelta aquí...'}</p>
+                  </div>
+                </div>
+                {item.file && <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 ml-2" />}
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-4 pt-2 border-t">
+          <button
+            type="button"
+            disabled={loading || !allAssigned}
+            onClick={handleProcessAndSync}
+            className="px-5 py-2.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 font-medium text-sm shadow-sm transition-all"
+          >
+            {loading ? 'Procesando ficheros...' : 'Procesar Planificación con Contrato'}
+          </button>
+
+          {processedData.length > 0 && (
+            <button
+              type="button"
+              onClick={handleDownloadExcel}
+              className="px-5 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium text-sm shadow-sm transition-all flex items-center gap-2"
+            >
+              <Download className="w-4 h-4" /> Descargar Excel ({processedData.length} registros)
+            </button>
+          )}
+          
+          <button
+            type="button"
+            onClick={() => {
+              setFiles({ revisiones: null, productos: null, lineasContrato: null, pedidos: null, pedidosReg: null });
+              setProcessedData([]);
+              setResultMessage(null);
+            }}
+            className="px-4 py-2.5 border rounded-lg hover:bg-muted font-medium text-sm ml-auto"
+          >
+            Reiniciar selección
+          </button>
+        </div>
+
+        {resultMessage && (
+          <div className={`p-4 border rounded-lg text-sm font-medium flex items-start space-x-2 ${isError ? 'bg-destructive/10 text-destructive border-destructive/20' : 'bg-emerald-50 text-emerald-800 border-emerald-200'}`}>
+            {isError ? <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" /> : <CheckCircle2 className="w-5 h-5 flex-shrink-0 mt-0.5" />}
+            <span>{resultMessage}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default SyncView;
