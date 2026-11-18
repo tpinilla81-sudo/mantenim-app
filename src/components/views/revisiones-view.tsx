@@ -1,12 +1,25 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Search, ArrowUpDown, FileSpreadsheet, Download } from 'lucide-react';
+import { Search, ArrowUpDown, FileSpreadsheet, Download, Filter, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 export function RevisionesView() {
   const [data, setData] = useState<any[]>([]);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [globalSearch, setGlobalSearch] = useState('');
+  
+  // Filtros individuales por columna
+  const [columnFilters, setColumnFilters] = useState({
+    'Nº prod. servicio': '',
+    'Nº Serie': '',
+    'Modelo': '',
+    'Sucursal': '',
+    'Nº Contrato': '',
+    'Fecha Próxima Revisión': '',
+    'Nombre Cliente Propietario': '',
+    'Tipo Registro': '',
+  });
+
   const [sortField, setSortField] = useState<string>('Fecha Próxima Revisión');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
@@ -33,14 +46,49 @@ export function RevisionesView() {
     }
   };
 
-  // Filtrado robusto sobre todas las propiedades del equipo
-  const filteredData = data.filter((row) => {
-    if (!searchTerm.trim()) return true;
-    const searchLower = searchTerm.toLowerCase().trim();
-    return Object.values(row).some((val) => {
-      if (val === null || val === undefined) return false;
-      return String(val).toLowerCase().includes(searchLower);
+  const handleColumnFilterChange = (columnKey: string, value: string) => {
+    setColumnFilters(prev => ({
+      ...prev,
+      [columnKey]: value
+    }));
+  };
+
+  const clearAllFilters = () => {
+    setGlobalSearch('');
+    setColumnFilters({
+      'Nº prod. servicio': '',
+      'Nº Serie': '',
+      'Modelo': '',
+      'Sucursal': '',
+      'Nº Contrato': '',
+      'Fecha Próxima Revisión': '',
+      'Nombre Cliente Propietario': '',
+      'Tipo Registro': '',
     });
+  };
+
+  // Filtrado combinado (Búsqueda global + Filtros individuales por columna estilo Excel)
+  const filteredData = data.filter((row) => {
+    // 1. Filtro global
+    if (globalSearch.trim()) {
+      const searchLower = globalSearch.toLowerCase().trim();
+      const matchesGlobal = Object.values(row).some((val) => {
+        if (val === null || val === undefined) return false;
+        return String(val).toLowerCase().includes(searchLower);
+      });
+      if (!matchesGlobal) return false;
+    }
+
+    // 2. Filtros por columna específica
+    for (const [key, filterVal] of Object.entries(columnFilters)) {
+      if (!filterVal || filterVal.trim() === '') continue;
+      const cellVal = String(row[key] || '').toLowerCase();
+      if (!cellVal.includes(filterVal.toLowerCase().trim())) {
+        return false;
+      }
+    }
+
+    return true;
   });
 
   const sortedData = [...filteredData].sort((a, b) => {
@@ -63,13 +111,15 @@ export function RevisionesView() {
     XLSX.writeFile(workbook, `Planificacion_Revisiones_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
+  const hasActiveFilters = globalSearch.trim() !== '' || Object.values(columnFilters).some(v => v.trim() !== '');
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h2 className="text-2xl font-bold tracking-tight">Planificación / Revisiones</h2>
           <p className="text-sm text-muted-foreground">
-            Listado unificado con fechas de revisión en formato europeo y filtrado activo.
+            Listado unificado con filtros independientes por columna estilo Excel.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -87,21 +137,30 @@ export function RevisionesView() {
         </div>
       </div>
 
-      <div className="flex items-center gap-2 bg-card border rounded-lg px-3 py-2 shadow-sm max-w-md focus-within:ring-2 focus-within:ring-primary/20">
-        <Search className="w-4 h-4 text-muted-foreground shrink-0" />
-        <input
-          type="text"
-          placeholder="Escribe para filtrar por contrato, cliente, modelo..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="w-full bg-transparent text-sm focus:outline-none"
-        />
-        {searchTerm && (
-          <button 
-            onClick={() => setSearchTerm('')} 
-            className="text-xs text-muted-foreground hover:text-foreground px-1.5 py-0.5 rounded bg-muted cursor-pointer"
+      <div className="flex flex-wrap items-center gap-3">
+        {/* Buscador global */}
+        <div className="flex items-center gap-2 bg-card border rounded-lg px-3 py-2 shadow-sm flex-1 max-w-md focus-within:ring-2 focus-within:ring-primary/20">
+          <Search className="w-4 h-4 text-muted-foreground shrink-0" />
+          <input
+            type="text"
+            placeholder="Búsqueda global en toda la tabla..."
+            value={globalSearch}
+            onChange={(e) => setGlobalSearch(e.target.value)}
+            className="w-full bg-transparent text-sm focus:outline-none"
+          />
+          {globalSearch && (
+            <button onClick={() => setGlobalSearch('')} className="text-xs text-muted-foreground hover:text-foreground">
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+
+        {hasActiveFilters && (
+          <button
+            onClick={clearAllFilters}
+            className="px-3 py-2 bg-secondary text-secondary-foreground rounded-lg text-xs font-semibold hover:bg-secondary/80 flex items-center gap-1.5 cursor-pointer"
           >
-            Limpiar
+            <X className="w-3.5 h-3.5" /> Limpiar todos los filtros
           </button>
         )}
       </div>
@@ -110,6 +169,7 @@ export function RevisionesView() {
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse text-sm">
             <thead>
+              {/* Cabecera de nombres de columnas y ordenación */}
               <tr className="bg-muted/50 border-b text-xs text-muted-foreground uppercase font-semibold">
                 <th className="p-3 cursor-pointer hover:text-foreground" onClick={() => handleSort('Nº prod. servicio')}>
                   <div className="flex items-center gap-1">Nº Prod. Servicio <ArrowUpDown className="w-3 h-3" /></div>
@@ -124,63 +184,4 @@ export function RevisionesView() {
                   <div className="flex items-center gap-1">Sucursal <ArrowUpDown className="w-3 h-3" /></div>
                 </th>
                 <th className="p-3 cursor-pointer hover:text-foreground" onClick={() => handleSort('Nº Contrato')}>
-                  <div className="flex items-center gap-1">Nº Contrato <ArrowUpDown className="w-3 h-3" /></div>
-                </th>
-                <th className="p-3 text-emerald-700 cursor-pointer hover:bg-emerald-50/50" onClick={() => handleSort('Fecha Próxima Revisión')}>
-                  <div className="flex items-center gap-1">Próxima Revisión <ArrowUpDown className="w-3 h-3" /></div>
-                </th>
-                <th className="p-3 cursor-pointer hover:text-foreground" onClick={() => handleSort('Nombre Cliente Propietario')}>
-                  <div className="flex items-center gap-1">Cliente Propietario <ArrowUpDown className="w-3 h-3" /></div>
-                </th>
-                <th className="p-3 cursor-pointer hover:text-foreground" onClick={() => handleSort('Nº de horas')}>
-                  <div className="flex items-center gap-1">Horas / Tipo <ArrowUpDown className="w-3 h-3" /></div>
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {sortedData.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="p-8 text-center text-muted-foreground">
-                    {data.length === 0 ? (
-                      <>No hay datos cargados. Ve a <span className="font-semibold text-foreground">Sincronizar BC</span> para procesar los ficheros.</>
-                    ) : (
-                      <>No se ha encontrado ningún equipo que coincida con "<span className="font-semibold text-foreground">{searchTerm}</span>".</>
-                    )}
-                  </td>
-                </tr>
-              ) : (
-                sortedData.slice(0, 150).map((row, idx) => (
-                  <tr key={row.idUnico || idx} className="hover:bg-muted/30 transition-colors">
-                    <td className="p-3 font-medium">{String(row['Nº prod. servicio'] || '')}</td>
-                    <td className="p-3 text-muted-foreground">{String(row['Nº Serie'] || '')}</td>
-                    <td className="p-3">{String(row['Modelo'] || '')}</td>
-                    <td className="p-3">
-                      <span className="px-2 py-0.5 bg-secondary text-secondary-foreground rounded text-xs font-semibold">
-                        {String(row['Sucursal'] || '')}
-                      </span>
-                    </td>
-                    <td className="p-3 font-mono text-xs font-semibold text-primary">{String(row['Nº Contrato'] || '')}</td>
-                    <td className="p-3 font-bold text-emerald-700 bg-emerald-50/30">
-                      {String(row['Fecha Próxima Revisión'] || '')}
-                    </td>
-                    <td className="p-3 truncate max-w-[200px]">{String(row['Nombre Cliente Propietario'] || '')}</td>
-                    <td className="p-3">
-                      <div className="text-xs flex items-center gap-1.5">
-                        <span className="font-semibold">{row['Nº de horas']} h</span>
-                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase ${row['Tipo Registro'] === 'Contratado' ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'}`}>
-                          {String(row['Tipo Registro'] || '')}
-                        </span>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-export default RevisionesView;
+                  <div className="flex items-center
