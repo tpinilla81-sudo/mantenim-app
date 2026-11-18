@@ -132,44 +132,149 @@ export function SyncView() {
         throw new Error("El fichero de Productos de Servicio está vacío.");
       }
 
-      // 1. Mapa de Revisiones (Filtro estricto: solo los que aparecen en REVISIONES-ANUALES-CONTRATOS)
+      console.log(`📊 Filas leídas -> Revisiones: ${revData.length}, Productos: ${prodData.length}, Líneas Contrato: ${lineasContratoData.length}`);
+
+      // Helper para buscar claves de forma flexible sin importar mayúsculas o acentos
+      const findValueInRow = (row: any, keys: string[]) => {
+        for (const k of Object.keys(row)) {
+          const cleanKey = k.trim().toLowerCase();
+          for (const target of keys) {
+            if (cleanKey.includes(target.toLowerCase())) {
+              return String(row[k] || '').trim();
+            }
+          }
+        }
+        return '';
+      };
+
+      // 1. Mapa de Revisiones robusto (buscando cualquier columna que contenga 'producto' o 'servicio' o 'contrato')
       const revisionesMap = new Map();
       revData.forEach((rev) => {
-        const prodServ = String(rev['Nº PRODUCTO SERVICIO'] || rev['Nº prod. servicio'] || '').trim();
-        if (prodServ) revisionesMap.set(prodServ, rev);
+        // Buscamos el identificador del producto de servicio en la fila de revisiones
+        let prodServ = '';
+        let numContrato = '';
+
+        for (const k of Object.keys(rev)) {
+          const val = String(rev[k] || '').trim();
+          const upperKey = k.toUpperCase();
+          if (upperKey.includes('PRODUCTO') || upperKey.includes('PROD. SERVICIO') || upperKey.includes('Nº PROD')) {
+            if (val) prodServ = val;
+          }
+          if (upperKey.includes('CONTRATO')) {
+            if (val) numContrato = val;
+          }
+        }
+
+        // Si no se encontró por nombre exacto, cogemos la primera y segunda columna por posición
+        if (!prodServ) {
+          const keys = Object.keys(rev);
+          if (keys.length > 0) prodServ = String(rev[keys[0]] || '').trim();
+          if (keys.length > 1 && !numContrato) numContrato = String(rev[keys[1]] || '').trim();
+        }
+
+        if (prodServ) {
+          revisionesMap.set(prodServ, numContrato);
+        }
       });
 
-      // 2. Mapa de Líneas de Contrato
+      console.log(`🔍 Claves únicas en revisionesMap: ${revisionesMap.size}`);
+
+      // 2. Mapa de Líneas de Contrato robusto
       const lineasMap = new Map();
       lineasContratoData.forEach((linea) => {
-        const prodServ = String(linea['Nº prod. servicio'] || linea['Nº PRODUCTO SERVICIO'] || '').trim();
-        if (prodServ) lineasMap.set(prodServ, linea);
+        let prodServ = '';
+        let numContrato = '';
+
+        for (const k of Object.keys(linea)) {
+          const val = String(linea[k] || '').trim();
+          const upperKey = k.toUpperCase();
+          if (upperKey.includes('PRODUCTO') || upperKey.includes('PROD. SERVICIO') || upperKey.includes('Nº PROD')) {
+            if (val) prodServ = val;
+          }
+          if (upperKey.includes('CONTRATO') && !upperKey.includes('GRUPO')) {
+            if (val) numContrato = val;
+          }
+        }
+
+        if (!prodServ) {
+          const keys = Object.keys(linea);
+          for (const k of keys) {
+            if (k.toUpperCase().includes('PROD') && linea[k]) {
+              prodServ = String(linea[k]).trim();
+              break;
+            }
+          }
+        }
+
+        if (prodServ) {
+          lineasMap.set(prodServ, numContrato);
+        }
       });
 
-      // 3. FILTRADO ESTRICTO: ÚNICAMENTE equipos con contrato de revisión anual
+      // 3. FUSIÓN Y FILTRADO
       const resultadoFinal: any[] = [];
       
       prodData.forEach((prod, index) => {
-        const prodId = String(prod['Nº'] || '').trim();
-        const revMatch = revisionesMap.get(prodId);
-        const lineaMatch = lineasMap.get(prodId) || {};
-        
-        // REGLA: Debe existir obligatoriamente en el fichero de revisiones anuales de contrato
-        if (revMatch !== undefined) {
-          resultadoFinal.push({
-            'Nº prod. servicio': prodId,
-            'Nº Serie': String(prod['Nº Serie'] || ''),
-            'Modelo': String(prod['Modelo'] || ''),
-            'Es propia': prod['Es propia'] ? 'Sí' : 'No',
-            'Nº Contrato': String(lineaMatch['Nº Contrato'] || revMatch['Nº CONTRATO'] || ''),
-            'Nombre Cliente Propietario': String(prod['Nombre Cliente Propietario'] || prod['Nombre'] || ''),
-            'Nombre Cliente Ubicación': String(prod['Nombre Cliente Ubicación'] || ''),
-            'Nº de horas': prod['Nº de horas'] || 0,
-            'Tipo Registro': 'Contratado',
-            idUnico: `${index}_${prodId}`
-          });
+        // Buscamos el ID principal del producto de servicio (columna 'Nº' o primera columna)
+        let prodId = '';
+        let serie = '';
+        let modelo = '';
+        let propietario = '';
+        let ubicacion = '';
+        let horas = 0;
+
+        for (const k of Object.keys(prod)) {
+          const val = String(prod[k] || '').trim();
+          const upperKey = k.trim().toUpperCase();
+          
+          if (upperKey === 'Nº' || upperKey === 'Nº PRODUCTO' || upperKey.includes('Nº PROD')) {
+            if (!prodId) prodId = val;
+          } else if (upperKey.includes('SERIE')) {
+            serie = val;
+          } else if (upperKey.includes('MODELO')) {
+            modelo = val;
+          } else if (upperKey.includes('PROPIETARIO') && upperKey.includes('NOMBRE')) {
+            propietario = val;
+          } else if (upperKey.includes('UBICACIÓN') && upperKey.includes('NOMBRE')) {
+            ubicacion = val;
+          } else if (upperKey.includes('HORAS')) {
+            horas = Number(val) || 0;
+          }
+        }
+
+        // Fallback si no encontró 'Nº' explícitamente
+        if (!prodId) {
+          const keys = Object.keys(prod);
+          if (keys.length > 0) prodId = String(prod[keys[0]] || '').trim();
+        }
+
+        if (prodId) {
+          const contratoRev = revisionesMap.get(prodId);
+          const contratoLinea = lineasMap.get(prodId);
+          const contratoFinal = contratoLinea || contratoRev;
+
+          // REGLA: Si está en revisionesMap (tiene contrato de revisión anual)
+          if (contratoRev !== undefined || contratoLinea !== undefined) {
+            resultadoFinal.push({
+              'Nº prod. servicio': prodId,
+              'Nº Serie': serie || prodId,
+              'Modelo': modelo || 'N/A',
+              'Nº Contrato': contratoFinal || 'Sin Contrato',
+              'Nombre Cliente Propietario': propietario || 'N/A',
+              'Nombre Cliente Ubicación': ubicacion || 'N/A',
+              'Nº de horas': horas,
+              'Tipo Registro': 'Contratado',
+              idUnico: `${index}_${prodId}`
+            });
+          }
         }
       });
+
+      console.log(`✅ Equipos con contrato detectados: ${resultadoFinal.length}`);
+
+      if (resultadoFinal.length === 0) {
+        throw new Error("No se ha encontrado ninguna coincidencia entre los productos y las revisiones. Comprueba que el fichero de Revisiones tenga los códigos de producto en su primera columna.");
+      }
 
       // Guardado en localStorage
       const jsonString = JSON.stringify(resultadoFinal);
@@ -180,6 +285,7 @@ export function SyncView() {
       setResultMessage(`¡Éxito! Procesados y guardados ${resultadoFinal.length} equipos con contrato.`);
     } catch (error: any) {
       setIsError(true);
+      console.error(error);
       setResultMessage(`Error al procesar los ficheros: ${error.message || 'Formato no válido'}`);
     } finally {
       setLoading(false);
@@ -200,15 +306,15 @@ export function SyncView() {
   return (
     <div className="space-y-6 p-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold tracking-tight">Sincronización (Solo Contratos)</h2>
-        <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded font-medium">Filtro Estricto de Revisiones</span>
+        <h2 className="text-2xl font-bold tracking-tight">Sincronización Inteligente</h2>
+        <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded font-medium">Cruce Flexible por ID</span>
       </div>
       
       <div className="p-6 bg-card border rounded-lg shadow-sm space-y-6">
         <div>
           <h3 className="text-lg font-semibold mb-1">Arrastra tus 5 excels de Business Central aquí</h3>
           <p className="text-sm text-muted-foreground">
-            Solo aparecerán en la planificación las máquinas que dispongan de contrato de revisión anual.
+            Se cruzarán los códigos de producto de forma flexible para aislar los contratos de revisiones anuales.
           </p>
         </div>
 
@@ -288,7 +394,7 @@ export function SyncView() {
             onClick={handleProcessAndSync}
             className="px-5 py-2.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 font-medium text-sm shadow-sm transition-all"
           >
-            {loading ? 'Procesando ficheros...' : 'Procesar Solo Contratos'}
+            {loading ? 'Procesando ficheros...' : 'Procesar Planificación Con Cruce Flexible'}
           </button>
 
           {processedData.length > 0 && (
