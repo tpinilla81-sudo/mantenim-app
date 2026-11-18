@@ -1,193 +1,330 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { Search, ArrowUpDown, ChevronUp, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import * as XLSX from 'xlsx';
+import { Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Download } from 'lucide-react';
 
-export function RevisionesView() {
-  const [items, setItems] = useState<any[]>([]);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [selectedClient, setSelectedClient] = useState('ALL');
-  
-  // Estados para la ordenación
-  const [sortField, setSortField] = useState<string>('Nº Serie');
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+export function SyncView() {
+  const [loading, setLoading] = useState(false);
+  const [resultMessage, setResultMessage] = useState<string | null>(null);
+  const [isError, setIsError] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [processedData, setProcessedData] = useState<any[]>([]);
 
-  // Paginación (15 por página)
-  const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 15;
+  const [files, setFiles] = useState<{
+    revisiones: File | null;
+    productos: File | null;
+    lineasContrato: File | null;
+    pedidos: File | null;
+    pedidosReg: File | null;
+  }>({
+    revisiones: null,
+    productos: null,
+    lineasContrato: null,
+    pedidos: null,
+    pedidosReg: null,
+  });
 
-  useEffect(() => {
-    const saved = localStorage.getItem('mantenim_planificacion_data');
-    if (saved) {
-      try {
-        setItems(JSON.parse(saved));
-      } catch (e) {
-        console.error('Error cargando datos de planificación', e);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const classifyFiles = (fileList: FileList | File[]) => {
+    const newFiles = { ...files };
+
+    Array.from(fileList).forEach(file => {
+      const name = file.name.toLowerCase();
+      
+      if (name.includes('revision') || name.includes('rev') || name.includes('ppi')) {
+        newFiles.revisiones = file;
+      } else if (name.includes('producto') || name.includes('prod')) {
+        newFiles.productos = file;
+      } else if (name.includes('contrato') || name.includes('líneas') || name.includes('lineas') || name.includes('line')) {
+        newFiles.lineasContrato = file;
+      } else if (name.includes('registrado') || name.includes('reg') || name.includes('posted')) {
+        newFiles.pedidosReg = file;
+      } else if (name.includes('pedido') || name.includes('ped') || name.includes('order')) {
+        if (!newFiles.pedidos) {
+          newFiles.pedidos = file;
+        } else if (!newFiles.pedidosReg) {
+          newFiles.pedidosReg = file;
+        }
       }
+    });
+
+    const unassignedFiles = Array.from(fileList).filter(f => 
+      !Object.values(newFiles).includes(f)
+    );
+
+    if (unassignedFiles.length > 0) {
+      if (!newFiles.revisiones && unassignedFiles.length > 0) newFiles.revisiones = unassignedFiles.shift() || null;
+      if (!newFiles.productos && unassignedFiles.length > 0) newFiles.productos = unassignedFiles.shift() || null;
+      if (!newFiles.lineasContrato && unassignedFiles.length > 0) newFiles.lineasContrato = unassignedFiles.shift() || null;
+      if (!newFiles.pedidos && unassignedFiles.length > 0) newFiles.pedidos = unassignedFiles.shift() || null;
+      if (!newFiles.pedidosReg && unassignedFiles.length > 0) newFiles.pedidosReg = unassignedFiles.shift() || null;
     }
-  }, []);
 
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchTerm, selectedClient]);
+    setFiles(newFiles);
+    setResultMessage(null);
+  };
 
-  const uniqueClients = useMemo(() => {
-    const clients = new Set<string>();
-    items.forEach(row => {
-      const client = row['Nombre Cliente Propietario'] || row['Nombre'];
-      if (client) clients.add(client);
-    });
-    return Array.from(clients).sort();
-  }, [items]);
-
-  const filteredAndSortedItems = useMemo(() => {
-    const filtered = items.filter(row => {
-      const serie = String(row['Nº Serie'] || row['Nº prod. servicio'] || '').toLowerCase();
-      const modelo = String(row['Modelo'] || '').toLowerCase();
-      const contrato = String(row['Nº Contrato'] || '').toLowerCase();
-      const cliente = String(row['Nombre Cliente Propietario'] || row['Nombre'] || '').toLowerCase();
-      const ubicacion = String(row['Nombre Cliente Ubicación'] || '').toLowerCase();
-
-      const query = searchTerm.toLowerCase();
-      const matchesSearch = 
-        serie.includes(query) || 
-        modelo.includes(query) || 
-        contrato.includes(query) || 
-        cliente.includes(query) ||
-        ubicacion.includes(query);
-
-      const rowClient = row['Nombre Cliente Propietario'] || row['Nombre'];
-      const matchesClient = selectedClient === 'ALL' || rowClient === selectedClient;
-
-      return matchesSearch && matchesClient;
-    });
-
-    return filtered.sort((a, b) => {
-      let valA = a[sortField] || '';
-      let valB = b[sortField] || '';
-
-      if (sortField === 'Nº de horas') {
-        valA = Number(valA) || 0;
-        valB = Number(valB) || 0;
-      } else {
-        valA = String(valA).toLowerCase();
-        valB = String(valB).toLowerCase();
-      }
-
-      if (valA < valB) return sortDirection === 'asc' ? -1 : 1;
-      if (valA > valB) return sortDirection === 'asc' ? 1 : -1;
-      return 0;
-    });
-  }, [items, searchTerm, selectedClient, sortField, sortDirection]);
-
-  const totalPages = Math.ceil(filteredAndSortedItems.length / itemsPerPage);
-  
-  const paginatedItems = useMemo(() => {
-    const start = (currentPage - 1) * itemsPerPage;
-    return filteredAndSortedItems.slice(start, start + itemsPerPage);
-  }, [filteredAndSortedItems, currentPage]);
-
-  const handleSort = (field: string) => {
-    if (sortField === field) {
-      setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortField(field);
-      setSortDirection('asc');
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      classifyFiles(e.dataTransfer.files);
     }
   };
 
-  const renderSortIcon = (field: string) => {
-    if (sortField !== field) return <ArrowUpDown className="w-3.5 h-3.5 ml-1 text-muted-foreground/50" />;
-    return sortDirection === 'asc' 
-      ? <ChevronUp className="w-3.5 h-3.5 ml-1 text-primary" /> 
-      : <ChevronDown className="w-3.5 h-3.5 ml-1 text-primary" />;
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      classifyFiles(e.target.files);
+    }
   };
+
+  const readFileAsJSON = (file: File): Promise<any[]> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const buffer = e.target?.result;
+          const workbook = XLSX.read(buffer, { type: 'array' });
+          
+          let sheetName = workbook.SheetNames[0];
+          let sheet = workbook.Sheets[sheetName];
+          let rawData = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[];
+
+          let headerRowIndex = 0;
+          for (let i = 0; i < Math.min(rawData.length, 15); i++) {
+            const rowStr = JSON.stringify(rawData[i]).toLowerCase();
+            if (rowStr.includes('nº') || rowStr.includes('prod') || rowStr.includes('contrato') || rowStr.includes('servicio') || rowStr.includes('serie')) {
+              headerRowIndex = i;
+              break;
+            }
+          }
+
+          const data = XLSX.utils.sheet_to_json(sheet, { range: headerRowIndex }) as any[];
+          resolve(data);
+        } catch (error) {
+          reject(error);
+        }
+      };
+      reader.onerror = (error) => reject(error);
+      reader.readAsArrayBuffer(file);
+    });
+  };
+
+  const handleProcessAndSync = async () => {
+    if (!files.revisiones || !files.productos || !files.lineasContrato || !files.pedidos || !files.pedidosReg) {
+      setIsError(true);
+      setResultMessage('Faltan ficheros por asignar. Comprueba que los 5 huecos estén ocupados.');
+      return;
+    }
+
+    setLoading(true);
+    setResultMessage(null);
+    setIsError(false);
+
+    try {
+      const revData = await readFileAsJSON(files.revisiones);
+      const prodData = await readFileAsJSON(files.productos);
+      const lineasContratoData = await readFileAsJSON(files.lineasContrato);
+
+      if (prodData.length === 0) {
+        throw new Error("El fichero de Productos de Servicio está vacío.");
+      }
+
+      // 1. Mapa de Revisiones (IDs autorizados por contrato de revisiones anuales)
+      const revisionesMap = new Map();
+      revData.forEach((rev) => {
+        const prodServ = String(rev['Nº PRODUCTO SERVICIO'] || rev['Nº prod. servicio'] || '').trim();
+        if (prodServ) revisionesMap.set(prodServ, rev);
+      });
+
+      // 2. Mapa de Líneas de Contrato
+      const lineasMap = new Map();
+      lineasContratoData.forEach((linea) => {
+        const prodServ = String(linea['Nº prod. servicio'] || linea['Nº PRODUCTO SERVICIO'] || '').trim();
+        if (prodServ) lineasMap.set(prodServ, linea);
+      });
+
+      // 3. FILTRADO LÓGICO: Solo equipos en Revisiones-Anuales-Contratos O máquinas propias
+      const resultadoFinal: any[] = [];
+      
+      prodData.forEach((prod, index) => {
+        const prodId = String(prod['Nº'] || '').trim();
+        const revMatch = revisionesMap.get(prodId);
+        const lineaMatch = lineasMap.get(prodId) || {};
+        
+        const esPropia = prod['Es propia'] === true || prod['Es propia'] === 'Sí' || prod['Es propia'] === '1' || prod['Es propia'] === 1;
+        const tieneContratoRevision = revMatch !== undefined;
+
+        if (tieneContratoRevision || esPropia) {
+          resultadoFinal.push({
+            'Nº prod. servicio': prodId,
+            'Nº Serie': String(prod['Nº Serie'] || ''),
+            'Modelo': String(prod['Modelo'] || ''),
+            'Es propia': esPropia ? 'Sí' : 'No',
+            'Nº Contrato': String(lineaMatch['Nº Contrato'] || revMatch?.['Nº CONTRATO'] || 'Sin Contrato'),
+            'Nombre Cliente Propietario': String(prod['Nombre Cliente Propietario'] || prod['Nombre'] || ''),
+            'Nombre Cliente Ubicación': String(prod['Nombre Cliente Ubicación'] || ''),
+            'Nº de horas': prod['Nº de horas'] || 0,
+            'Tipo Registro': tieneContratoRevision ? 'Contratado' : 'Propia',
+            idUnico: `${index}_${prodId}`
+          });
+        }
+      });
+
+      // Guardado optimizado en localStorage
+      const jsonString = JSON.stringify(resultadoFinal);
+      localStorage.setItem('mantenim_planificacion_data', jsonString);
+
+      setProcessedData(resultadoFinal);
+      setIsError(false);
+      setResultMessage(`¡Éxito! Procesados y guardados ${resultadoFinal.length} equipos planificables (Contratos + Propias).`);
+    } catch (error: any) {
+      setIsError(true);
+      setResultMessage(`Error al procesar los ficheros: ${error.message || 'Formato no válido'}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDownloadExcel = () => {
+    if (processedData.length === 0) return;
+
+    const worksheet = XLSX.utils.json_to_sheet(processedData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Planificacion_Revisiones');
+    XLSX.writeFile(workbook, `Planificacion_Revisiones_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
+  const allAssigned = Boolean(files.revisiones && files.productos && files.lineasContrato && files.pedidos && files.pedidosReg);
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+    <div className="space-y-6 p-6">
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-bold tracking-tight">Sincronización Inteligente</h2>
+        <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded font-medium">Lógica de Revisiones y Propias</span>
+      </div>
+      
+      <div className="p-6 bg-card border rounded-lg shadow-sm space-y-6">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight">Planificación / Revisiones</h2>
+          <h3 className="text-lg font-semibold mb-1">Arrastra tus 5 excels de Business Central aquí</h3>
           <p className="text-sm text-muted-foreground">
-            Listado general del parque de equipos para consulta, filtrado y ordenación.
+            Se filtrarán automáticamente los equipos de revisiones anuales y las máquinas propias.
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="text-sm font-medium bg-muted px-3 py-1.5 rounded border">
-            Mostrando <span className="font-bold">{paginatedItems.length}</span> de <span className="font-bold">{filteredAndSortedItems.length}</span> filtrados (<span className="font-bold text-primary">{items.length}</span> total)
-          </div>
-        </div>
-      </div>
 
-      {items.length > 0 && (
-        <div className="flex flex-col sm:flex-row gap-3 bg-card p-4 border rounded-lg shadow-sm">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-            <input
-              type="text"
-              placeholder="Buscar por Nº de Serie, Modelo, Contrato, Cliente o Ubicación..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 text-sm border rounded bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
-            />
-          </div>
-          
-          <div className="sm:w-72">
-            <select
-              value={selectedClient}
-              onChange={(e) => setSelectedClient(e.target.value)}
-              className="w-full py-2 px-3 text-sm border rounded bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
-            >
-              <option value="ALL">Todos los clientes ({uniqueClients.length})</option>
-              {uniqueClients.map((client, idx) => (
-                <option key={idx} value={client}>{client}</option>
-              ))}
-            </select>
+        <div
+          onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+          onDragLeave={() => setIsDragging(false)}
+          onDrop={handleDrop}
+          onClick={() => fileInputRef.current?.click()}
+          className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all ${
+            isDragging ? 'border-primary bg-primary/5 scale-[1.01]' : 'border-muted-foreground/30 hover:border-primary/50 bg-muted/20'
+          }`}
+        >
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept=".xlsx, .xls"
+            onChange={handleFileSelect}
+            className="hidden"
+          />
+          <div className="flex flex-col items-center justify-center space-y-3">
+            <div className="p-4 bg-primary/10 rounded-full text-primary">
+              <Upload className="w-8 h-8" />
+            </div>
+            <div>
+              <p className="text-base font-semibold">Arrastra los 5 excels aquí o haz clic para buscarlos</p>
+              <p className="text-xs text-muted-foreground mt-1">Soporta selección múltiple simultánea (.xlsx, .xls)</p>
+            </div>
           </div>
         </div>
-      )}
 
-      {items.length === 0 ? (
-        <div className="p-12 text-center border rounded-lg bg-card text-muted-foreground">
-          <p className="text-base font-medium mb-1">No hay datos de planificación sincronizados.</p>
-          <p className="text-sm">Ve a la sección <span className="underline font-semibold">Sincronización</span> para procesar los ficheros.</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {[
+            { key: 'revisiones', label: '1. Revisiones', file: files.revisiones, setter: (f: File) => setFiles(prev => ({ ...prev, revisiones: f })) },
+            { key: 'productos', label: '2. Productos de Servicio', file: files.productos, setter: (f: File) => setFiles(prev => ({ ...prev, productos: f })) },
+            { key: 'lineasContrato', label: '3. Líneas de Contrato', file: files.lineasContrato, setter: (f: File) => setFiles(prev => ({ ...prev, lineasContrato: f })) },
+            { key: 'pedidos', label: '4. Pedidos de Servicio', file: files.pedidos, setter: (f: File) => setFiles(prev => ({ ...prev, pedidos: f })) },
+            { key: 'pedidosReg', label: '5. Pedidos Registrados', file: files.pedidosReg, setter: (f: File) => setFiles(prev => ({ ...prev, pedidosReg: f })) },
+          ].map((item) => {
+            const inputId = `file-input-${item.key}`;
+            return (
+              <div 
+                key={item.key} 
+                onClick={() => document.getElementById(inputId)?.click()}
+                className={`p-3 border rounded-lg flex items-center justify-between text-sm cursor-pointer transition-all hover:border-primary ${
+                  item.file ? 'bg-emerald-50/50 border-emerald-200 text-emerald-900' : 'bg-muted/30 text-muted-foreground border-dashed'
+                }`}
+              >
+                <input 
+                  id={inputId} 
+                  type="file" 
+                  accept=".xlsx, .xls" 
+                  className="hidden" 
+                  onChange={(e) => {
+                    if (e.target.files?.[0]) {
+                      item.setter(e.target.files[0]);
+                    }
+                  }} 
+                />
+                <div className="flex items-center space-x-2 truncate">
+                  <FileSpreadsheet className={`w-4 h-4 flex-shrink-0 ${item.file ? 'text-emerald-600' : 'text-muted-foreground'}`} />
+                  <div className="truncate">
+                    <p className="font-semibold text-xs">{item.label}</p>
+                    <p className="text-xs truncate opacity-80">{item.file ? item.file.name : 'Haz clic o suelta aquí...'}</p>
+                  </div>
+                </div>
+                {item.file && <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 ml-2" />}
+              </div>
+            );
+          })}
         </div>
-      ) : filteredAndSortedItems.length === 0 ? (
-        <div className="p-12 text-center border rounded-lg bg-card text-muted-foreground">
-          <p className="text-base font-medium mb-1">Ningún registro coincide con los filtros de búsqueda.</p>
-          <button 
-            onClick={() => { setSearchTerm(''); setSelectedClient('ALL'); }}
-            className="mt-3 text-xs bg-primary text-primary-foreground px-3 py-1.5 rounded font-medium"
+
+        <div className="flex flex-wrap items-center gap-4 pt-2 border-t">
+          <button
+            type="button"
+            disabled={loading || !allAssigned}
+            onClick={handleProcessAndSync}
+            className="px-5 py-2.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 font-medium text-sm shadow-sm transition-all"
           >
-            Limpiar filtros
+            {loading ? 'Procesando ficheros...' : 'Procesar Planificación'}
+          </button>
+
+          {processedData.length > 0 && (
+            <button
+              type="button"
+              onClick={handleDownloadExcel}
+              className="px-5 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium text-sm shadow-sm transition-all flex items-center gap-2"
+            >
+              <Download className="w-4 h-4" /> Descargar Excel ({processedData.length} registros)
+            </button>
+          )}
+          
+          <button
+            type="button"
+            onClick={() => {
+              setFiles({ revisiones: null, productos: null, lineasContrato: null, pedidos: null, pedidosReg: null });
+              setProcessedData([]);
+              setResultMessage(null);
+            }}
+            className="px-4 py-2.5 border rounded-lg hover:bg-muted font-medium text-sm ml-auto"
+          >
+            Reiniciar selección
           </button>
         </div>
-      ) : (
-        <div className="border rounded-lg bg-card overflow-hidden shadow-sm flex flex-col">
-          <div className="overflow-x-auto flex-1">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-muted border-b text-muted-foreground font-semibold">
-                <tr>
-                  <th onClick={() => handleSort('Nº Serie')} className="p-3 cursor-pointer hover:bg-muted/80 select-none transition-colors">
-                    <div className="flex items-center">Nº Serie {renderSortIcon('Nº Serie')}</div>
-                  </th>
-                  <th onClick={() => handleSort('Modelo')} className="p-3 cursor-pointer hover:bg-muted/80 select-none transition-colors">
-                    <div className="flex items-center">Modelo {renderSortIcon('Modelo')}</div>
-                  </th>
-                  <th onClick={() => handleSort('Nº Contrato')} className="p-3 cursor-pointer hover:bg-muted/80 select-none transition-colors">
-                    <div className="flex items-center">Nº Contrato {renderSortIcon('Nº Contrato')}</div>
-                  </th>
-                  <th onClick={() => handleSort('Nombre Cliente Propietario')} className="p-3 cursor-pointer hover:bg-muted/80 select-none transition-colors">
-                    <div className="flex items-center">Cliente Propietario {renderSortIcon('Nombre Cliente Propietario')}</div>
-                  </th>
-                  <th onClick={() => handleSort('Nombre Cliente Ubicación')} className="p-3 cursor-pointer hover:bg-muted/80 select-none transition-colors">
-                    <div className="flex items-center">Ubicación {renderSortIcon('Nombre Cliente Ubicación')}</div>
-                  </th>
-                  <th onClick={() => handleSort('Nº de horas')} className="p-3 cursor-pointer hover:bg-muted/80 select-none transition-colors">
-                    <div className="flex items-center">Nº Horas {renderSortIcon('Nº de horas')}</div>
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {paginatedItems.map((row, idx) => (
-                  <tr key={idx
+
+        {resultMessage && (
+          <div className={`p-4 border rounded-lg text-sm font-medium flex items-start space-x-2 ${isError ? 'bg-destructive/10 text-destructive border-destructive/20' : 'bg-emerald-50 text-emerald-800 border-emerald-200'}`}>
+            {isError ? <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" /> : <CheckCircle2 className="w-5 h-5 flex-shrink-0 mt-0.5" />}
+            <span>{resultMessage}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default SyncView;
