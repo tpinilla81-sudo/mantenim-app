@@ -53,7 +53,7 @@ export function LogicasView() {
         <button
           type="button"
           onClick={handleSave}
-          className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 font-medium text-sm flex items-center gap-2 shadow-sm transition-all"
+          className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 font-medium text-sm flex items-center gap-2 shadow-sm transition-all cursor-pointer"
         >
           <Save className="w-4 h-4" /> Guardar Lógicas
         </button>
@@ -62,11 +62,12 @@ export function LogicasView() {
       {savedMessage && (
         <div className="p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg text-sm font-medium flex items-center gap-2">
           <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-          <span>¡Lógicas guardadas con éxito! Vuelve a la sección de Sincronizar BC para reprocesar los ficheros aplicando estas reglas.</span>
+          <span>¡Lógicas guardadas con éxito! Vuelve a la sección de Sincronización para reprocesar los ficheros aplicando estas reglas.</span>
         </div>
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Parámetros Generales */}
         <div className="p-6 bg-card border rounded-lg shadow-sm space-y-4">
           <div className="flex items-center gap-2 font-semibold text-base border-b pb-3">
             <Sliders className="w-5 h-5 text-primary" /> Parámetros Generales
@@ -80,7 +81,7 @@ export function LogicasView() {
               onChange={(e) => setConfig({ ...config, horasPorRevisionEstandar: Number(e.target.value) || 1000 })}
               className="w-full px-3 py-2 border rounded-lg text-sm bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
             />
-            <p className="text-xs text-muted-foreground">Horas de funcionamiento por defecto entre revisiones.</p>
+            <p className="text-xs text-muted-foreground">Número de horas de funcionamiento por defecto entre revisiones.</p>
           </div>
 
           <div className="space-y-2">
@@ -91,17 +92,18 @@ export function LogicasView() {
               onChange={(e) => setConfig({ ...config, mesesRevisionesContratoEstandar: Number(e.target.value) || 12 })}
               className="w-full px-3 py-2 border rounded-lg text-sm bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
             />
-            <p className="text-xs text-muted-foreground">Referencia de meses para contratos de revisión anual.</p>
+            <p className="text-xs text-muted-foreground">Referencia de meses por defecto para contratos de revisión anual.</p>
           </div>
         </div>
 
+        {/* Excepciones por Modelo */}
         <div className="p-6 bg-card border rounded-lg shadow-sm space-y-4">
           <div className="flex items-center gap-2 font-semibold text-base border-b pb-3">
             <Settings className="w-5 h-5 text-primary" /> Intervalos por Modelo Específico
           </div>
 
           <p className="text-xs text-muted-foreground">
-            Añade modelos que requieran un intervalo de horas diferente al estándar.
+            Añade modelos de máquinas que requieran un intervalo de horas diferente al estándar general.
           </p>
 
           <div className="space-y-3">
@@ -123,7 +125,7 @@ export function LogicasView() {
               <button
                 type="button"
                 onClick={handleAddModelo}
-                className="px-3 py-1.5 bg-secondary text-secondary-foreground rounded-lg hover:bg-secondary/80 text-sm font-medium flex items-center gap-1 shrink-0"
+                className="px-3 py-1.5 bg-secondary text-secondary-foreground rounded-lg hover:bg-secondary/80 text-sm font-medium flex items-center gap-1 shrink-0 cursor-pointer"
               >
                 <Plus className="w-4 h-4" /> Añadir
               </button>
@@ -143,7 +145,7 @@ export function LogicasView() {
                     <button
                       type="button"
                       onClick={() => handleRemoveModelo(mod)}
-                      className="text-destructive hover:text-destructive/80 p-1 rounded"
+                      className="text-destructive hover:text-destructive/80 p-1 rounded cursor-pointer"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
