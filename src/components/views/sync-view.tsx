@@ -132,7 +132,7 @@ export function SyncView() {
         throw new Error("El fichero de Productos de Servicio está vacío.");
       }
 
-      // 1. Mapa de Revisiones (IDs autorizados por contrato de revisiones anuales)
+      // 1. Mapa de Revisiones (Filtro estricto: solo los que aparecen en REVISIONES-ANUALES-CONTRATOS)
       const revisionesMap = new Map();
       revData.forEach((rev) => {
         const prodServ = String(rev['Nº PRODUCTO SERVICIO'] || rev['Nº prod. servicio'] || '').trim();
@@ -146,7 +146,7 @@ export function SyncView() {
         if (prodServ) lineasMap.set(prodServ, linea);
       });
 
-      // 3. FILTRADO LÓGICO: Solo equipos en Revisiones-Anuales-Contratos O máquinas propias
+      // 3. FILTRADO ESTRICTO: ÚNICAMENTE equipos con contrato de revisión anual
       const resultadoFinal: any[] = [];
       
       prodData.forEach((prod, index) => {
@@ -154,32 +154,30 @@ export function SyncView() {
         const revMatch = revisionesMap.get(prodId);
         const lineaMatch = lineasMap.get(prodId) || {};
         
-        const esPropia = prod['Es propia'] === true || prod['Es propia'] === 'Sí' || prod['Es propia'] === '1' || prod['Es propia'] === 1;
-        const tieneContratoRevision = revMatch !== undefined;
-
-        if (tieneContratoRevision || esPropia) {
+        // REGLA: Debe existir obligatoriamente en el fichero de revisiones anuales de contrato
+        if (revMatch !== undefined) {
           resultadoFinal.push({
             'Nº prod. servicio': prodId,
             'Nº Serie': String(prod['Nº Serie'] || ''),
             'Modelo': String(prod['Modelo'] || ''),
-            'Es propia': esPropia ? 'Sí' : 'No',
-            'Nº Contrato': String(lineaMatch['Nº Contrato'] || revMatch?.['Nº CONTRATO'] || 'Sin Contrato'),
+            'Es propia': prod['Es propia'] ? 'Sí' : 'No',
+            'Nº Contrato': String(lineaMatch['Nº Contrato'] || revMatch['Nº CONTRATO'] || ''),
             'Nombre Cliente Propietario': String(prod['Nombre Cliente Propietario'] || prod['Nombre'] || ''),
             'Nombre Cliente Ubicación': String(prod['Nombre Cliente Ubicación'] || ''),
             'Nº de horas': prod['Nº de horas'] || 0,
-            'Tipo Registro': tieneContratoRevision ? 'Contratado' : 'Propia',
+            'Tipo Registro': 'Contratado',
             idUnico: `${index}_${prodId}`
           });
         }
       });
 
-      // Guardado optimizado en localStorage
+      // Guardado en localStorage
       const jsonString = JSON.stringify(resultadoFinal);
       localStorage.setItem('mantenim_planificacion_data', jsonString);
 
       setProcessedData(resultadoFinal);
       setIsError(false);
-      setResultMessage(`¡Éxito! Procesados y guardados ${resultadoFinal.length} equipos planificables (Contratos + Propias).`);
+      setResultMessage(`¡Éxito! Procesados y guardados ${resultadoFinal.length} equipos con contrato.`);
     } catch (error: any) {
       setIsError(true);
       setResultMessage(`Error al procesar los ficheros: ${error.message || 'Formato no válido'}`);
@@ -193,8 +191,8 @@ export function SyncView() {
 
     const worksheet = XLSX.utils.json_to_sheet(processedData);
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Planificacion_Revisiones');
-    XLSX.writeFile(workbook, `Planificacion_Revisiones_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Planificacion_Contratos');
+    XLSX.writeFile(workbook, `Planificacion_Contratos_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
   const allAssigned = Boolean(files.revisiones && files.productos && files.lineasContrato && files.pedidos && files.pedidosReg);
@@ -202,15 +200,15 @@ export function SyncView() {
   return (
     <div className="space-y-6 p-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold tracking-tight">Sincronización Inteligente</h2>
-        <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded font-medium">Lógica de Revisiones y Propias</span>
+        <h2 className="text-2xl font-bold tracking-tight">Sincronización (Solo Contratos)</h2>
+        <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded font-medium">Filtro Estricto de Revisiones</span>
       </div>
       
       <div className="p-6 bg-card border rounded-lg shadow-sm space-y-6">
         <div>
           <h3 className="text-lg font-semibold mb-1">Arrastra tus 5 excels de Business Central aquí</h3>
           <p className="text-sm text-muted-foreground">
-            Se filtrarán automáticamente los equipos de revisiones anuales y las máquinas propias.
+            Solo aparecerán en la planificación las máquinas que dispongan de contrato de revisión anual.
           </p>
         </div>
 
@@ -290,7 +288,7 @@ export function SyncView() {
             onClick={handleProcessAndSync}
             className="px-5 py-2.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 font-medium text-sm shadow-sm transition-all"
           >
-            {loading ? 'Procesando ficheros...' : 'Procesar Planificación'}
+            {loading ? 'Procesando ficheros...' : 'Procesar Solo Contratos'}
           </button>
 
           {processedData.length > 0 && (
