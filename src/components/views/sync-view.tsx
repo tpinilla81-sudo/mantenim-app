@@ -29,10 +29,8 @@ export function SyncView() {
 
   const classifyFiles = (fileList: FileList | File[]) => {
     const newFiles = { ...files };
-
     Array.from(fileList).forEach(file => {
       const name = file.name.toLowerCase();
-      
       if (name.includes('revision') || name.includes('rev') || name.includes('ppi')) {
         newFiles.revisiones = file;
       } else if (name.includes('producto') || name.includes('prod')) {
@@ -42,18 +40,12 @@ export function SyncView() {
       } else if (name.includes('registrado') || name.includes('reg') || name.includes('posted')) {
         newFiles.pedidosReg = file;
       } else if (name.includes('pedido') || name.includes('ped') || name.includes('order')) {
-        if (!newFiles.pedidos) {
-          newFiles.pedidos = file;
-        } else if (!newFiles.pedidosReg) {
-          newFiles.pedidosReg = file;
-        }
+        if (!newFiles.pedidos) newFiles.pedidos = file;
+        else if (!newFiles.pedidosReg) newFiles.pedidosReg = file;
       }
     });
 
-    const unassignedFiles = Array.from(fileList).filter(f => 
-      !Object.values(newFiles).includes(f)
-    );
-
+    const unassignedFiles = Array.from(fileList).filter(f => !Object.values(newFiles).includes(f));
     if (unassignedFiles.length > 0) {
       if (!newFiles.revisiones && unassignedFiles.length > 0) newFiles.revisiones = unassignedFiles.shift() || null;
       if (!newFiles.productos && unassignedFiles.length > 0) newFiles.productos = unassignedFiles.shift() || null;
@@ -87,7 +79,6 @@ export function SyncView() {
         try {
           const buffer = e.target?.result;
           const workbook = XLSX.read(buffer, { type: 'array' });
-          
           let sheetName = workbook.SheetNames[0];
           let sheet = workbook.Sheets[sheetName];
           let rawData = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[];
@@ -100,7 +91,6 @@ export function SyncView() {
               break;
             }
           }
-
           const data = XLSX.utils.sheet_to_json(sheet, { range: headerRowIndex }) as any[];
           resolve(data);
         } catch (error) {
@@ -127,21 +117,17 @@ export function SyncView() {
       const revData = await readFileAsJSON(files.revisiones);
       const prodData = await readFileAsJSON(files.productos);
       const lineasContratoData = await readFileAsJSON(files.lineasContrato);
-      const pedidosData = await readFileAsJSON(files.pedidos);
-      const pedidosRegData = await readFileAsJSON(files.pedidosReg);
 
       if (prodData.length === 0) {
         throw new Error("El fichero de Productos de Servicio está vacío.");
       }
 
-      // Depuración en consola para verificar columnas exactas
-      console.log('Columnas Productos:', Object.keys(prodData[0] || {}));
-
-      // 1. Mapa de Revisiones
-      const revisionesMap = new Map();
+      // 1. Mapa de Revisiones (capturando contrato y fecha de próxima revisión si existe)
+      const revisionesMap = new Map<string, { contrato: string; fechaProxima: string }>();
       revData.forEach((rev) => {
         let prodServ = '';
         let numContrato = '';
+        let fechaProx = '';
         for (const k of Object.keys(rev)) {
           const val = String(rev[k] || '').trim();
           const upper = k.toUpperCase();
@@ -151,23 +137,28 @@ export function SyncView() {
           if (upper.includes('CONTRATO')) {
             if (val) numContrato = val;
           }
+          if (upper.includes('FECHA') || upper.includes('PRÓXIMA') || upper.includes('PROXIMA') || upper.includes('PLANIFICADA')) {
+            if (val) fechaProx = val;
+          }
         }
         if (!prodServ) {
           const keys = Object.keys(rev);
           if (keys.length > 0) prodServ = String(rev[keys[0]] || '').trim();
           if (keys.length > 1 && !numContrato) numContrato = String(rev[keys[1]] || '').trim();
+          if (keys.length > 2 && !fechaProx) fechaProx = String(rev[keys[2]] || '').trim();
         }
         if (prodServ) {
-          revisionesMap.set(prodServ, numContrato);
+          revisionesMap.set(prodServ, { contrato: numContrato, fechaProxima: fechaProx });
         }
       });
 
-      // 2. Mapa de Líneas de Contrato (extraemos también sucursal/centro si viene ahí)
-      const lineasMap = new Map<string, { contrato: string; sucursal: string }>();
+      // 2. Mapa de Líneas de Contrato
+      const lineasMap = new Map<string, { contrato: string; sucursal: string; fechaProxima: string }>();
       lineasContratoData.forEach((linea) => {
         let prodServ = '';
         let numContrato = '';
         let suc = '';
+        let fechaProx = '';
         for (const k of Object.keys(linea)) {
           const val = String(linea[k] || '').trim();
           const upper = k.toUpperCase();
@@ -180,94 +171,77 @@ export function SyncView() {
           if (upper.includes('SUCURSAL') || upper.includes('CENTRO') || upper.includes('DELEGACI')) {
             if (val) suc = val;
           }
-        }
-        if (prodServ) {
-          lineasMap.set(prodServ, { contrato: numContrato, sucursal: suc });
-        }
-      });
-
-      // 3. Mapa auxiliar por cliente desde Pedidos / Pedidos Registrados para Sucursal/Centro Responsabilidad (S01, S02...)
-      const clienteSucursalMap = new Map<string, string>();
-      [...pedidosData, ...pedidosRegData].forEach((ped) => {
-        let cli = '';
-        let suc = '';
-        for (const k of Object.keys(ped)) {
-          const val = String(ped[k] || '').trim();
-          const upper = k.toUpperCase();
-          if (upper === 'Nº CLIENTE' || upper === 'CLIENTE') cli = val;
-          if (upper.includes('SUCURSAL') || upper.includes('CENTRO') || upper.includes('DELEGACI')) {
-            if (val) suc = val;
+          if (upper.includes('FECHA') || upper.includes('PRÓXIMA') || upper.includes('PROXIMA')) {
+            if (val) fechaProx = val;
           }
         }
-        if (cli && suc && !clienteSucursalMap.has(cli)) {
-          clienteSucursalMap.set(cli, suc);
+        if (prodServ) {
+          lineasMap.set(prodServ, { contrato: numContrato, sucursal: suc, fechaProxima: fechaProx });
         }
       });
 
-      // 4. Filtrado exclusivo de máquinas con contrato y extracción multi-fuente de Sucursal
+      // 3. Fusión final
       const resultadoFinal: any[] = [];
       
       prodData.forEach((prod, index) => {
-        let prodId = '';
-        let serie = '';
+        let prodServId = '';
+        let numSerie = '';
         let modelo = '';
         let sucursalProd = '';
         let propietario = '';
-        let numCliente = '';
         let ubicacion = '';
         let horas = 0;
+        let fechaProxProd = '';
 
         for (const k of Object.keys(prod)) {
           const val = String(prod[k] || '').trim();
           const upperKey = k.trim().toUpperCase();
           
           if (upperKey === 'Nº' || upperKey === 'Nº PRODUCTO' || upperKey.includes('Nº PROD')) {
-            if (!prodId) prodId = val;
-          } else if (upperKey.includes('SERIE')) {
-            serie = val;
+            if (!prodServId) prodServId = val;
+          } else if (upperKey.includes('SERIE') && !upperKey.includes('PRODUCTO')) {
+            numSerie = val;
           } else if (upperKey.includes('MODELO')) {
             modelo = val;
           } else if (upperKey.includes('SUCURSAL') || upperKey.includes('DELEGACI') || upperKey.includes('CENTRO')) {
             if (val) sucursalProd = val;
           } else if (upperKey.includes('PROPIETARIO') && upperKey.includes('NOMBRE')) {
             propietario = val;
-          } else if (upperKey.includes('CLIENTE') && upperKey.includes('Nº')) {
-            if (!numCliente) numCliente = val;
           } else if (upperKey.includes('UBICACIÓN') && upperKey.includes('NOMBRE')) {
             ubicacion = val;
           } else if (upperKey.includes('HORAS')) {
             horas = Number(val) || 0;
+          } else if (upperKey.includes('FECHA') || upperKey.includes('PRÓXIMA') || upperKey.includes('PROXIMA')) {
+            if (val) fechaProxProd = val;
           }
         }
 
-        if (!prodId) {
+        if (!prodServId) {
           const keys = Object.keys(prod);
-          if (keys.length > 0) prodId = String(prod[keys[0]] || '').trim();
+          if (keys.length > 0) prodServId = String(prod[keys[0]] || '').trim();
         }
 
-        if (prodId) {
-          const contratoRev = revisionesMap.get(prodId);
-          const lineaInfo = lineasMap.get(prodId);
-          const contratoFinal = lineaInfo?.contrato || contratoRev;
+        if (prodServId) {
+          const revInfo = revisionesMap.get(prodServId);
+          const lineaInfo = lineasMap.get(prodServId);
+          const contratoFinal = lineaInfo?.contrato || revInfo?.contrato;
 
-          if (contratoRev !== undefined || lineaInfo !== undefined) {
-            const sucursalFinal =
-              sucursalProd ||
-              lineaInfo?.sucursal ||
-              (numCliente ? clienteSucursalMap.get(numCliente) : '') ||
-              'Sin Asignar';
+          if (revInfo !== undefined || lineaInfo !== undefined) {
+            const sucursalFinal = sucursalProd || lineaInfo?.sucursal || 'S01';
+            const fechaProximaFinal = fechaProxProd || revInfo?.fechaProxima || lineaInfo?.fechaProxima || 'Pendiente';
 
             resultadoFinal.push({
-              'Nº prod. servicio': prodId,
-              'Nº Serie': serie || prodId,
+              'Nº prod. servicio': prodServId,
+              'Nº Serie': numSerie || 'N/A',
               'Modelo': modelo || 'N/A',
               'Sucursal': sucursalFinal,
               'Nº Contrato': contratoFinal || 'Sin Contrato',
+              'Fecha Próxima Revisión': fechaProximaFinal,
               'Nombre Cliente Propietario': propietario || 'N/A',
               'Nombre Cliente Ubicación': ubicacion || 'N/A',
               'Nº de horas': horas,
               'Tipo Registro': 'Contratado',
-              idUnico: `${index}_${prodId}`
+              idUnico: `${index}_${prodServId}`
             });
           }
         }
@@ -276,11 +250,9 @@ export function SyncView() {
       const jsonString = JSON.stringify(resultadoFinal);
       localStorage.setItem('mantenim_planificacion_data', jsonString);
 
-      const sucursalesDetectadas = Array.from(new Set(resultadoFinal.map(r => r['Sucursal']))).join(', ');
-
       setProcessedData(resultadoFinal);
       setIsError(false);
-      setResultMessage(`¡Éxito! Guardados ${resultadoFinal.length} equipos. Sucursales detectadas: [${sucursalesDetectadas}].`);
+      setResultMessage(`¡Éxito! Procesados y guardados ${resultadoFinal.length} equipos con contrato y fecha.`);
     } catch (error: any) {
       setIsError(true);
       setResultMessage(`Error al procesar los ficheros: ${error.message || 'Formato no válido'}`);
@@ -291,7 +263,6 @@ export function SyncView() {
 
   const handleDownloadExcel = () => {
     if (processedData.length === 0) return;
-
     const worksheet = XLSX.utils.json_to_sheet(processedData);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Planificacion_Contratos');
@@ -303,15 +274,15 @@ export function SyncView() {
   return (
     <div className="space-y-6 p-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold tracking-tight">Sincronización (Solo Contratos)</h2>
-        <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded font-medium">Filtro de Contratos y Sucursal</span>
+        <h2 className="text-2xl font-bold tracking-tight">Sincronización Inteligente</h2>
+        <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded font-medium">Contratos y Fechas de Revisión</span>
       </div>
       
       <div className="p-6 bg-card border rounded-lg shadow-sm space-y-6">
         <div>
           <h3 className="text-lg font-semibold mb-1">Arrastra tus 5 excels de Business Central aquí</h3>
           <p className="text-sm text-muted-foreground">
-            Se aislarán exclusivamente los equipos con contrato de revisión anual y su sucursal/delegación.
+            Se incluirá la fecha de la próxima revisión para cada equipo contratado.
           </p>
         </div>
 
@@ -338,7 +309,6 @@ export function SyncView() {
             </div>
             <div>
               <p className="text-base font-semibold">Arrastra los 5 excels aquí o haz clic para buscarlos</p>
-              <p className="text-xs text-muted-foreground mt-1">Soporta selección múltiple simultánea (.xlsx, .xls)</p>
             </div>
           </div>
         </div>
@@ -360,17 +330,7 @@ export function SyncView() {
                   item.file ? 'bg-emerald-50/50 border-emerald-200 text-emerald-900' : 'bg-muted/30 text-muted-foreground border-dashed'
                 }`}
               >
-                <input 
-                  id={inputId} 
-                  type="file" 
-                  accept=".xlsx, .xls" 
-                  className="hidden" 
-                  onChange={(e) => {
-                    if (e.target.files?.[0]) {
-                      item.setter(e.target.files[0]);
-                    }
-                  }} 
-                />
+                <input id={inputId} type="file" accept=".xlsx, .xls" className="hidden" onChange={(e) => { if (e.target.files?.[0]) item.setter(e.target.files[0]); }} />
                 <div className="flex items-center space-x-2 truncate">
                   <FileSpreadsheet className={`w-4 h-4 flex-shrink-0 ${item.file ? 'text-emerald-600' : 'text-muted-foreground'}`} />
                   <div className="truncate">
@@ -391,35 +351,18 @@ export function SyncView() {
             onClick={handleProcessAndSync}
             className="px-5 py-2.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 font-medium text-sm shadow-sm transition-all"
           >
-            {loading ? 'Procesando ficheros...' : 'Procesar Planificación con Contrato'}
+            {loading ? 'Procesando...' : 'Procesar Planificación'}
           </button>
-
           {processedData.length > 0 && (
-            <button
-              type="button"
-              onClick={handleDownloadExcel}
-              className="px-5 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium text-sm shadow-sm transition-all flex items-center gap-2"
-            >
-              <Download className="w-4 h-4" /> Descargar Excel ({processedData.length} registros)
+            <button type="button" onClick={handleDownloadExcel} className="px-5 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium text-sm flex items-center gap-2">
+              <Download className="w-4 h-4" /> Descargar Excel ({processedData.length})
             </button>
           )}
-          
-          <button
-            type="button"
-            onClick={() => {
-              setFiles({ revisiones: null, productos: null, lineasContrato: null, pedidos: null, pedidosReg: null });
-              setProcessedData([]);
-              setResultMessage(null);
-            }}
-            className="px-4 py-2.5 border rounded-lg hover:bg-muted font-medium text-sm ml-auto"
-          >
-            Reiniciar selección
-          </button>
         </div>
 
         {resultMessage && (
-          <div className={`p-4 border rounded-lg text-sm font-medium flex items-start space-x-2 ${isError ? 'bg-destructive/10 text-destructive border-destructive/20' : 'bg-emerald-50 text-emerald-800 border-emerald-200'}`}>
-            {isError ? <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" /> : <CheckCircle2 className="w-5 h-5 flex-shrink-0 mt-0.5" />}
+          <div className={`p-4 border rounded-lg text-sm font-medium flex items-start space-x-2 ${isError ? 'bg-destructive/10 text-destructive' : 'bg-emerald-50 text-emerald-800'}`}>
+            {isError ? <AlertCircle className="w-5 h-5 flex-shrink-0" /> : <CheckCircle2 className="w-5 h-5 flex-shrink-0" />}
             <span>{resultMessage}</span>
           </div>
         )}
