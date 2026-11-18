@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { toast } from 'sonner'
 import {
   Sun,
   Menu,
@@ -73,49 +72,6 @@ export default function Home() {
       window.location.hash = activeView
     }
   }, [activeView])
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    let cancelled = false
-    fetch('/api/sync')
-      .then((res) => res.json())
-      .then((data) => {
-        if (cancelled || !data) return
-        if (data.syncCaducado) {
-          const dias = data.diasDesdeUltimoSync ?? '?'
-          const intervalo = data.syncReminderInterval || 'mes'
-          const intervaloTxt =
-            intervalo === 'semana' ? 'semana' :
-            intervalo === 'bisemana' ? '2 semanas' :
-            'mes'
-          toast.warning(
-            `Toca sincronizar — han pasado ${dias} días`,
-            {
-              description: `El intervalo configurado es cada ${intervaloTxt}. Ve a Sincronizar BC para subir los Excels actualizados.`,
-              duration: 8000,
-              action: {
-                label: 'Ir a Sincronizar',
-                onClick: () => setActiveView('sync'),
-              },
-            }
-          )
-        } else if (!data.ultimoSync) {
-          toast.info(
-            'Bienvenido — aún no has sincronizado',
-            {
-              description: 'Ve a Sincronizar BC para subir los Excels de Business Central y empezar a usar la app.',
-              duration: 8000,
-              action: {
-                label: 'Empezar',
-                onClick: () => setActiveView('sync'),
-              },
-            }
-          )
-        }
-      })
-      .catch(() => {})
-    return () => { cancelled = true }
-  }, [])
 
   const currentNav = NAV_ITEMS.find((n) => n.key === activeView)!
 
@@ -222,7 +178,7 @@ export default function Home() {
       <div className="flex-1 min-w-0 flex flex-col">
         {/* Top bar */}
         <header className="sticky top-0 z-20 h-16 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-          <div className="flex items-center gap-3 px-4 lg:px-8 h-full">
+          <div className="flex items-center gap-4 px-4 lg:px-8 h-full">
             <button
               className="lg:hidden text-muted-foreground hover:text-foreground"
               onClick={() => setSidebarOpen(true)}
