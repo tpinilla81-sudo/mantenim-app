@@ -102,6 +102,25 @@ export function SyncView() {
     });
   };
 
+  // Utilidad para formatear fechas a YYYY-MM-DD
+  const formatDate = (date: Date) => {
+    return date.toISOString().slice(0, 10);
+  };
+
+  // Parseador robusto de fechas de Excel / Business Central
+  const parseExcelDate = (val: any): Date | null => {
+    if (!val) return null;
+    if (val instanceof Date) return val;
+    if (typeof val === 'number') {
+      // Formato serial de Excel
+      const d = new Date(Math.round((val - (25567 + 2)) * 86400 * 1000));
+      return isNaN(d.getTime()) ? null : d;
+    }
+    const str = String(val).trim();
+    const d = new Date(str);
+    return isNaN(d.getTime()) ? null : d;
+  };
+
   const handleProcessAndSync = async () => {
     if (!files.revisiones || !files.productos || !files.lineasContrato || !files.pedidos || !files.pedidosReg) {
       setIsError(true);
@@ -117,72 +136,107 @@ export function SyncView() {
       const revData = await readFileAsJSON(files.revisiones);
       const prodData = await readFileAsJSON(files.productos);
       const lineasContratoData = await readFileAsJSON(files.lineasContrato);
+      const pedidosRegData = await readFileAsJSON(files.pedidosReg);
 
       if (prodData.length === 0) {
         throw new Error("El fichero de Productos de Servicio está vacío.");
       }
 
-      // 1. Mapa de Revisiones (capturando contrato y fecha de próxima revisión si existe)
-      const revisionesMap = new Map<string, { contrato: string; fechaProxima: string }>();
+      // 1. Mapear última fecha de revisión e información de contrato desde Revisiones
+      const revisionesMap = new Map<string, { contrato: string; ultimaFecha: Date | null; numRevisionesAnuales: number }>();
       revData.forEach((rev) => {
         let prodServ = '';
         let numContrato = '';
-        let fechaProx = '';
+        let fechaUltima: Date | null = null;
+        let revAnuales = 1; // Por defecto 1 revisión al año
+
         for (const k of Object.keys(rev)) {
-          const val = String(rev[k] || '').trim();
+          const val = rev[k];
           const upper = k.toUpperCase();
           if (upper.includes('PRODUCTO') || upper.includes('PROD. SERVICIO') || upper.includes('Nº PROD')) {
-            if (val) prodServ = val;
-          }
-          if (upper.includes('CONTRATO')) {
-            if (val) numContrato = val;
-          }
-          if (upper.includes('FECHA') || upper.includes('PRÓXIMA') || upper.includes('PROXIMA') || upper.includes('PLANIFICADA')) {
-            if (val) fechaProx = val;
+            if (val) prodServ = String(val).trim();
+          } else if (upper.includes('CONTRATO')) {
+            if (val) numContrato = String(val).trim();
+          } else if (upper.includes('FECHA') || upper.includes('ULTIMA') || upper.includes('ÚLTIMA') || upper.includes('SERVICIO')) {
+            const parsed = parseExcelDate(val);
+            if (parsed) fechaUltima = parsed;
+          } else if (upper.includes('REVISIONES') || upper.includes('CANTIDAD') || upper.includes('Nº REVISIONES')) {
+            const parsedNum = Number(val);
+            if (!isNaN(parsedNum) && parsedNum > 0) revAnuales = parsedNum;
           }
         }
-        if (!prodServ) {
-          const keys = Object.keys(rev);
-          if (keys.length > 0) prodServ = String(rev[keys[0]] || '').trim();
-          if (keys.length > 1 && !numContrato) numContrato = String(rev[keys[1]] || '').trim();
-          if (keys.length > 2 && !fechaProx) fechaProx = String(rev[keys[2]] || '').trim();
-        }
+
         if (prodServ) {
-          revisionesMap.set(prodServ, { contrato: numContrato, fechaProxima: fechaProx });
+          revisionesMap.set(prodServ, {
+            contrato: numContrato,
+            ultimaFecha: fechaUltima,
+            numRevisionesAnuales: revAnuales
+          });
         }
       });
 
       // 2. Mapa de Líneas de Contrato
-      const lineasMap = new Map<string, { contrato: string; sucursal: string; fechaProxima: string }>();
+      const lineasMap = new Map<string, { contrato: string; sucursal: string }>();
       lineasContratoData.forEach((linea) => {
         let prodServ = '';
         let numContrato = '';
         let suc = '';
-        let fechaProx = '';
         for (const k of Object.keys(linea)) {
           const val = String(linea[k] || '').trim();
           const upper = k.toUpperCase();
           if (upper.includes('PRODUCTO') || upper.includes('PROD. SERVICIO') || upper.includes('Nº PROD')) {
             if (val) prodServ = val;
-          }
-          if (upper.includes('CONTRATO') && !upper.includes('GRUPO')) {
+          } else if (upper.includes('CONTRATO') && !upper.includes('GRUPO')) {
             if (val) numContrato = val;
-          }
-          if (upper.includes('SUCURSAL') || upper.includes('CENTRO') || upper.includes('DELEGACI')) {
+          } else if (upper.includes('SUCURSAL') || upper.includes('CENTRO') || upper.includes('DELEGACI')) {
             if (val) suc = val;
-          }
-          if (upper.includes('FECHA') || upper.includes('PRÓXIMA') || upper.includes('PROXIMA')) {
-            if (val) fechaProx = val;
           }
         }
         if (prodServ) {
-          lineasMap.set(prodServ, { contrato: numContrato, sucursal: suc, fechaProxima: fechaProx });
+          lineasMap.set(prodServ, { contrato: numContrato, sucursal: suc });
         }
       });
 
-      // 3. Fusión final
+      // 3. Histórico de pedidos registrados para calcular ritmo anual de horas en máquinas propias o estimaciones
+      const historialHorasMap = new Map<string, { ultimaFecha: Date | null; horasActuales: number }>();
+      pedidosRegData.forEach((reg) => {
+        let prodServ = '';
+        let fechaReg: Date | null = null;
+        let horasReg = 0;
+
+        for (const k of Object.keys(reg)) {
+          const val = reg[k];
+          const upper = k.toUpperCase();
+          if (upper.includes('PRODUCTO') || upper.includes('PROD. SERVICIO') || upper.includes('Nº PROD')) {
+            if (val) prodServ = String(val).trim();
+          } else if (upper.includes('FECHA')) {
+            const parsed = parseExcelDate(val);
+            if (parsed) fechaReg = parsed;
+          } else if (upper.includes('HORAS')) {
+            const num = Number(val);
+            if (!isNaN(num)) horasReg = num;
+          }
+        }
+
+        if (prodServ) {
+          const existing = historialHorasMap.get(prodServ);
+          if (!existing) {
+            historialHorasMap.set(prodServ, { ultimaFecha: fechaReg, horasActuales: horasReg });
+          } else {
+            if (fechaReg && (!existing.ultimaFecha || fechaReg > existing.ultimaFecha)) {
+              existing.ultimaFecha = fechaReg;
+            }
+            if (horasReg > existing.horasActuales) {
+              existing.horasActuales = horasReg;
+            }
+          }
+        }
+      });
+
+      // 4. FUSIÓN Y APLICACIÓN DE LÓGICAS DE CÁLCULO
       const resultadoFinal: any[] = [];
-      
+      const hoy = new Date();
+
       prodData.forEach((prod, index) => {
         let prodServId = '';
         let numSerie = '';
@@ -190,8 +244,7 @@ export function SyncView() {
         let sucursalProd = '';
         let propietario = '';
         let ubicacion = '';
-        let horas = 0;
-        let fechaProxProd = '';
+        let horasActuales = 0;
 
         for (const k of Object.keys(prod)) {
           const val = String(prod[k] || '').trim();
@@ -210,9 +263,8 @@ export function SyncView() {
           } else if (upperKey.includes('UBICACIÓN') && upperKey.includes('NOMBRE')) {
             ubicacion = val;
           } else if (upperKey.includes('HORAS')) {
-            horas = Number(val) || 0;
-          } else if (upperKey.includes('FECHA') || upperKey.includes('PRÓXIMA') || upperKey.includes('PROXIMA')) {
-            if (val) fechaProxProd = val;
+            const num = Number(val);
+            if (!isNaN(num)) horasActuales = num;
           }
         }
 
@@ -228,7 +280,23 @@ export function SyncView() {
 
           if (revInfo !== undefined || lineaInfo !== undefined) {
             const sucursalFinal = sucursalProd || lineaInfo?.sucursal || 'S01';
-            const fechaProximaFinal = fechaProxProd || revInfo?.fechaProxima || lineaInfo?.fechaProxima || 'Pendiente';
+            let fechaProximaStr = 'Pendiente';
+
+            // ==========================================
+            // LÓGICA 1: MÁQUINAS CON CONTRATO
+            // ==========================================
+            // Sabemos el nº de revisiones anuales contratadas. Cogemos la última revisión y calculamos la próxima.
+            if (revInfo?.ultimaFecha) {
+              const ultima = new Date(revInfo.ultimaFecha);
+              const mesesAIncrementar = Math.round(12 / (revInfo.numRevisionesAnuales || 1));
+              ultima.setMonth(ultima.getMonth() + mesesAIncrementar);
+              fechaProximaStr = formatDate(ultima);
+            } else {
+              // Si no hay fecha de última revisión registrada, estimamos 1 año desde hoy
+              const estimada = new Date(hoy);
+              estimada.setFullYear(estimada.getFullYear() + 1);
+              fechaProximaStr = formatDate(estimada);
+            }
 
             resultadoFinal.push({
               'Nº prod. servicio': prodServId,
@@ -236,10 +304,10 @@ export function SyncView() {
               'Modelo': modelo || 'N/A',
               'Sucursal': sucursalFinal,
               'Nº Contrato': contratoFinal || 'Sin Contrato',
-              'Fecha Próxima Revisión': fechaProximaFinal,
+              'Fecha Próxima Revisión': fechaProximaStr,
               'Nombre Cliente Propietario': propietario || 'N/A',
               'Nombre Cliente Ubicación': ubicacion || 'N/A',
-              'Nº de horas': horas,
+              'Nº de horas': horasActuales,
               'Tipo Registro': 'Contratado',
               idUnico: `${index}_${prodServId}`
             });
@@ -252,7 +320,7 @@ export function SyncView() {
 
       setProcessedData(resultadoFinal);
       setIsError(false);
-      setResultMessage(`¡Éxito! Procesados y guardados ${resultadoFinal.length} equipos con contrato y fecha.`);
+      setResultMessage(`¡Éxito! Procesados y calculados ${resultadoFinal.length} equipos con sus fechas de revisión.`);
     } catch (error: any) {
       setIsError(true);
       setResultMessage(`Error al procesar los ficheros: ${error.message || 'Formato no válido'}`);
@@ -275,14 +343,14 @@ export function SyncView() {
     <div className="space-y-6 p-6">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold tracking-tight">Sincronización Inteligente</h2>
-        <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded font-medium">Contratos y Fechas de Revisión</span>
+        <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded font-medium">Cálculo de Próxima Revisión</span>
       </div>
       
       <div className="p-6 bg-card border rounded-lg shadow-sm space-y-6">
         <div>
           <h3 className="text-lg font-semibold mb-1">Arrastra tus 5 excels de Business Central aquí</h3>
           <p className="text-sm text-muted-foreground">
-            Se incluirá la fecha de la próxima revisión para cada equipo contratado.
+            Se aplicarán las reglas de cálculo automático de fechas de revisión.
           </p>
         </div>
 
@@ -351,7 +419,7 @@ export function SyncView() {
             onClick={handleProcessAndSync}
             className="px-5 py-2.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 font-medium text-sm shadow-sm transition-all"
           >
-            {loading ? 'Procesando...' : 'Procesar Planificación'}
+            {loading ? 'Calculando...' : 'Procesar y Calcular Fechas'}
           </button>
           {processedData.length > 0 && (
             <button type="button" onClick={handleDownloadExcel} className="px-5 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium text-sm flex items-center gap-2">
