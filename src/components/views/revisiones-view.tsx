@@ -1,407 +1,397 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { Search, ArrowUpDown, ChevronUp, ChevronDown, FilterX, Download } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Download } from 'lucide-react';
-import { calcularProximaRevisionContrato, calcularProximaRevisionPropia } from '@/lib/maintenance-rules';
 
-export function SyncView() {
-  const [loading, setLoading] = useState(false);
-  const [resultMessage, setResultMessage] = useState<string | null>(null);
-  const [isError, setIsError] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
-  const [processedData, setProcessedData] = useState<any[]>([]);
+interface ColumnFilters {
+  prodServ: string;
+  serie: string;
+  modelo: string;
+  sucursal: string;
+  contrato: string;
+  fechaProx: string;
+  propietario: string;
+  ubicacion: string;
+}
 
-  const [files, setFiles] = useState<{
-    revisiones: File | null;
-    productos: File | null;
-    lineasContrato: File | null;
-    pedidos: File | null;
-    pedidosReg: File | null;
-  }>({
-    revisiones: null,
-    productos: null,
-    lineasContrato: null,
-    pedidos: null,
-    pedidosReg: null,
+export function RevisionesView() {
+  const [items, setItems] = useState<any[]>([]);
+  const [globalSearch, setGlobalSearch] = useState('');
+  
+  const [colFilters, setColFilters] = useState<ColumnFilters>({
+    prodServ: '',
+    serie: '',
+    modelo: '',
+    sucursal: '',
+    contrato: '',
+    fechaProx: '',
+    propietario: '',
+    ubicacion: '',
   });
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [sortField, setSortField] = useState<string>('Fecha Próxima Revisión');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
-  const classifyFiles = (fileList: FileList | File[]) => {
-    const newFiles = { ...files };
-    Array.from(fileList).forEach(file => {
-      const name = file.name.toLowerCase();
-      if (name.includes('revision') || name.includes('rev') || name.includes('ppi')) {
-        newFiles.revisiones = file;
-      } else if (name.includes('producto') || name.includes('prod')) {
-        newFiles.productos = file;
-      } else if (name.includes('contrato') || name.includes('líneas') || name.includes('lineas') || name.includes('line')) {
-        newFiles.lineasContrato = file;
-      } else if (name.includes('registrado') || name.includes('reg') || name.includes('posted')) {
-        newFiles.pedidosReg = file;
-      } else if (name.includes('pedido') || name.includes('ped') || name.includes('order')) {
-        if (!newFiles.pedidos) newFiles.pedidos = file;
-        else if (!newFiles.pedidosReg) newFiles.pedidosReg = file;
+  const [visibleCount, setVisibleCount] = useState(300);
+  const tableContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const saved = localStorage.getItem('mantenim_planificacion_data');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        
+        // FILTRADO RADICAL Y DEFINITIVO: Descartar cualquier registro sin contrato válido
+        const soloContratosValidos = parsed.filter((row: any) => {
+          const c = String(row['Nº Contrato'] || '').trim();
+          const upperC = c.toUpperCase();
+          
+          return (
+            c !== '' &&
+            upperC !== 'SIN CONTRATO' &&
+            upperC !== 'UNDEFINED' &&
+            upperC !== 'NULL' &&
+            upperC !== 'N/A' &&
+            c !== '0'
+          );
+        });
+
+        setItems(soloContratosValidos);
+      } catch (e) {
+        console.error('Error cargando datos de planificación', e);
       }
+    }
+  }, []);
+
+  const uniqueValues = useMemo(() => {
+    const prodServs = new Set<string>();
+    const series = new Set<string>();
+    const modelos = new Set<string>();
+    const sucursales = new Set<string>();
+    const contratos = new Set<string>();
+    const fechasProx = new Set<string>();
+    const propietarios = new Set<string>();
+    const ubicaciones = new Set<string>();
+
+    items.forEach(row => {
+      if (row['Nº prod. servicio']) prodServs.add(String(row['Nº prod. servicio']));
+      if (row['Nº Serie']) series.add(String(row['Nº Serie']));
+      if (row['Modelo']) modelos.add(String(row['Modelo']));
+      if (row['Sucursal']) sucursales.add(String(row['Sucursal']));
+      if (row['Nº Contrato']) contratos.add(String(row['Nº Contrato']));
+      if (row['Fecha Próxima Revisión']) fechasProx.add(String(row['Fecha Próxima Revisión']));
+      if (row['Nombre Cliente Propietario']) propietarios.add(String(row['Nombre Cliente Propietario']));
+      if (row['Nombre Cliente Ubicación']) ubicaciones.add(String(row['Nombre Cliente Ubicación']));
     });
 
-    const unassignedFiles = Array.from(fileList).filter(f => !Object.values(newFiles).includes(f));
-    if (unassignedFiles.length > 0) {
-      if (!newFiles.revisiones && unassignedFiles.length > 0) newFiles.revisiones = unassignedFiles.shift() || null;
-      if (!newFiles.productos && unassignedFiles.length > 0) newFiles.productos = unassignedFiles.shift() || null;
-      if (!newFiles.lineasContrato && unassignedFiles.length > 0) newFiles.lineasContrato = unassignedFiles.shift() || null;
-      if (!newFiles.pedidos && unassignedFiles.length > 0) newFiles.pedidos = unassignedFiles.shift() || null;
-      if (!newFiles.pedidosReg && unassignedFiles.length > 0) newFiles.pedidosReg = unassignedFiles.shift() || null;
-    }
+    return {
+      prodServs: Array.from(prodServs).sort(),
+      series: Array.from(series).sort(),
+      modelos: Array.from(modelos).sort(),
+      sucursales: Array.from(sucursales).sort(),
+      contratos: Array.from(contratos).sort(),
+      fechasProx: Array.from(fechasProx).sort(),
+      propietarios: Array.from(propietarios).sort(),
+      ubicaciones: Array.from(ubicaciones).sort(),
+    };
+  }, [items]);
 
-    setFiles(newFiles);
-    setResultMessage(null);
-  };
+  const filteredAndSortedItems = useMemo(() => {
+    const qGlobal = globalSearch.toLowerCase().trim();
+    const qProdServ = colFilters.prodServ.toLowerCase().trim();
+    const qSerie = colFilters.serie.toLowerCase().trim();
+    const qModelo = colFilters.modelo.toLowerCase().trim();
+    const qSucursal = colFilters.sucursal.toLowerCase().trim();
+    const qContrato = colFilters.contrato.toLowerCase().trim();
+    const qFechaProx = colFilters.fechaProx.toLowerCase().trim();
+    const qProp = colFilters.propietario.toLowerCase().trim();
+    const qUbica = colFilters.ubicacion.toLowerCase().trim();
 
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setIsDragging(false);
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      classifyFiles(e.dataTransfer.files);
-    }
-  };
+    const filtered = items.filter(row => {
+      const prodServ = String(row['Nº prod. servicio'] || '');
+      const serie = String(row['Nº Serie'] || '');
+      const modelo = String(row['Modelo'] || '');
+      const sucursal = String(row['Sucursal'] || '');
+      const contrato = String(row['Nº Contrato'] || '');
+      const fechaProx = String(row['Fecha Próxima Revisión'] || '');
+      const propietario = String(row['Nombre Cliente Propietario'] || '');
+      const ubicacion = String(row['Nombre Cliente Ubicación'] || '');
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      classifyFiles(e.target.files);
-    }
-  };
-
-  const readFileAsJSON = (file: File): Promise<any[]> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        try {
-          const buffer = e.target?.result;
-          const workbook = XLSX.read(buffer, { type: 'array' });
-          let sheetName = workbook.SheetNames[0];
-          let sheet = workbook.Sheets[sheetName];
-          let rawData = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[];
-
-          let headerRowIndex = 0;
-          for (let i = 0; i < Math.min(rawData.length, 15); i++) {
-            const rowStr = JSON.stringify(rawData[i]).toLowerCase();
-            if (rowStr.includes('nº') || rowStr.includes('prod') || rowStr.includes('contrato') || rowStr.includes('servicio') || rowStr.includes('serie')) {
-              headerRowIndex = i;
-              break;
-            }
-          }
-          const data = XLSX.utils.sheet_to_json(sheet, { range: headerRowIndex }) as any[];
-          resolve(data);
-        } catch (error) {
-          reject(error);
-        }
-      };
-      reader.onerror = (error) => reject(error);
-      reader.readAsArrayBuffer(file);
-    });
-  };
-
-  const parseExcelDate = (val: any): Date | null => {
-    if (!val) return null;
-    if (val instanceof Date) return val;
-    if (typeof val === 'number') {
-      const d = new Date(Math.round((val - (25567 + 2)) * 86400 * 1000));
-      return isNaN(d.getTime()) ? null : d;
-    }
-    const str = String(val).trim();
-    const d = new Date(str);
-    return isNaN(d.getTime()) ? null : d;
-  };
-
-  const handleProcessAndSync = async () => {
-    if (!files.revisiones || !files.productos || !files.lineasContrato || !files.pedidos || !files.pedidosReg) {
-      setIsError(true);
-      setResultMessage('Faltan ficheros por asignar. Comprueba que los 5 huecos estén ocupados.');
-      return;
-    }
-
-    setLoading(true);
-    setResultMessage(null);
-    setIsError(false);
-
-    try {
-      const revData = await readFileAsJSON(files.revisiones);
-      const prodData = await readFileAsJSON(files.productos);
-      const lineasContratoData = await readFileAsJSON(files.lineasContrato);
-      const pedidosRegData = await readFileAsJSON(files.pedidosReg);
-
-      if (prodData.length === 0) {
-        throw new Error("El fichero de Productos de Servicio está vacío.");
+      if (qGlobal) {
+        const matchGlobal =
+          prodServ.toLowerCase().includes(qGlobal) ||
+          serie.toLowerCase().includes(qGlobal) ||
+          modelo.toLowerCase().includes(qGlobal) ||
+          sucursal.toLowerCase().includes(qGlobal) ||
+          contrato.toLowerCase().includes(qGlobal) ||
+          fechaProx.toLowerCase().includes(qGlobal) ||
+          propietario.toLowerCase().includes(qGlobal) ||
+          ubicacion.toLowerCase().includes(qGlobal);
+        if (!matchGlobal) return false;
       }
 
-      // 1. Mapa de Revisiones
-      const revisionesMap = new Map<string, { contrato: string; ultimaFecha: Date | null; numRevisionesAnuales: number }>();
-      revData.forEach((rev) => {
-        let prodServ = '';
-        let numContrato = '';
-        let fechaUltima: Date | null = null;
-        let revAnuales = 1;
+      if (qProdServ && !prodServ.toLowerCase().includes(qProdServ)) return false;
+      if (qSerie && !serie.toLowerCase().includes(qSerie)) return false;
+      if (qModelo && !modelo.toLowerCase().includes(qModelo)) return false;
+      if (qSucursal && !sucursal.toLowerCase().includes(qSucursal)) return false;
+      if (qContrato && !contrato.toLowerCase().includes(qContrato)) return false;
+      if (qFechaProx && !fechaProx.toLowerCase().includes(qFechaProx)) return false;
+      if (qProp && !propietario.toLowerCase().includes(qProp)) return false;
+      if (qUbica && !ubicacion.toLowerCase().includes(qUbica)) return false;
 
-        for (const k of Object.keys(rev)) {
-          const val = rev[k];
-          const upper = k.toUpperCase();
-          if (upper.includes('PRODUCTO') || upper.includes('PROD. SERVICIO') || upper.includes('Nº PROD')) {
-            if (val) prodServ = String(val).trim();
-          } else if (upper.includes('CONTRATO')) {
-            if (val) numContrato = String(val).trim();
-          } else if (upper.includes('FECHA') || upper.includes('ULTIMA') || upper.includes('ÚLTIMA') || upper.includes('SERVICIO')) {
-            const parsed = parseExcelDate(val);
-            if (parsed) fechaUltima = parsed;
-          } else if (upper.includes('REVISIONES') || upper.includes('CANTIDAD') || upper.includes('Nº REVISIONES')) {
-            const parsedNum = Number(val);
-            if (!isNaN(parsedNum) && parsedNum > 0) revAnuales = parsedNum;
-          }
-        }
+      return true;
+    });
 
-        if (prodServ) {
-          revisionesMap.set(prodServ, { contrato: numContrato, ultimaFecha: fechaUltima, numRevisionesAnuales: revAnuales });
-        }
-      });
+    return filtered.sort((a, b) => {
+      let valA = a[sortField] ?? '';
+      let valB = b[sortField] ?? '';
 
-      // 2. Mapa de Líneas de Contrato
-      const lineasMap = new Map<string, { contrato: string; sucursal: string }>();
-      lineasContratoData.forEach((linea) => {
-        let prodServ = '';
-        let numContrato = '';
-        let suc = '';
-        for (const k of Object.keys(linea)) {
-          const val = String(linea[k] || '').trim();
-          const upper = k.toUpperCase();
-          if (upper.includes('PRODUCTO') || upper.includes('PROD. SERVICIO') || upper.includes('Nº PROD')) {
-            if (val) prodServ = val;
-          } else if (upper.includes('CONTRATO') && !upper.includes('GRUPO')) {
-            if (val) numContrato = val;
-          } else if (upper.includes('SUCURSAL') || upper.includes('CENTRO') || upper.includes('DELEGACI')) {
-            if (val) suc = val;
-          }
-        }
-        if (prodServ) {
-          lineasMap.set(prodServ, { contrato: numContrato, sucursal: suc });
-        }
-      });
+      if (sortField === 'Nº de horas') {
+        valA = Number(valA) || 0;
+        valB = Number(valB) || 0;
+      } else {
+        valA = String(valA).toLowerCase();
+        valB = String(valB).toLowerCase();
+      }
 
-      // 3. Histórico de horas por equipo para máquinas propias
-      const historialProdMap = new Map<string, { fecha: Date; horas: number }[]>();
-      pedidosRegData.forEach((reg) => {
-        let prodServ = '';
-        let fechaReg: Date | null = null;
-        let horasReg = 0;
+      if (valA < valB) return sortDirection === 'asc' ? -1 : 1;
+      if (valA > valB) return sortDirection === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }, [items, globalSearch, colFilters, sortField, sortDirection]);
 
-        for (const k of Object.keys(reg)) {
-          const val = reg[k];
-          const upper = k.toUpperCase();
-          if (upper.includes('PRODUCTO') || upper.includes('PROD. SERVICIO') || upper.includes('Nº PROD')) {
-            if (val) prodServ = String(val).trim();
-          } else if (upper.includes('FECHA')) {
-            fechaReg = parseExcelDate(val);
-          } else if (upper.includes('HORAS')) {
-            const num = Number(val);
-            if (!isNaN(num)) horasReg = num;
-          }
-        }
+  useEffect(() => {
+    setVisibleCount(300);
+    if (tableContainerRef.current) {
+      tableContainerRef.current.scrollTop = 0;
+    }
+  }, [globalSearch, colFilters, sortField, sortDirection]);
 
-        if (prodServ && fechaReg) {
-          const list = historialProdMap.get(prodServ) || [];
-          list.push({ fecha: fechaReg, horas: horasReg });
-          historialProdMap.set(prodServ, list);
-        }
-      });
-
-      // 4. PROCESAMIENTO ESTRICTO: Solo equipos con contrato real o propias con flag
-      const resultadoFinal: any[] = [];
-      
-      prodData.forEach((prod, index) => {
-        let prodServId = '';
-        let numSerie = '';
-        let modelo = '';
-        let sucursalProd = '';
-        let propietario = '';
-        let ubicacion = '';
-        let horasActuales = 0;
-        let esPropiaFlag = false;
-
-        for (const k of Object.keys(prod)) {
-          const val = String(prod[k] || '').trim();
-          const upperKey = k.trim().toUpperCase();
-          
-          if (upperKey === 'Nº' || upperKey === 'Nº PRODUCTO' || upperKey.includes('Nº PROD')) {
-            if (!prodServId) prodServId = val;
-          } else if (upperKey.includes('SERIE') && !upperKey.includes('PRODUCTO')) {
-            numSerie = val;
-          } else if (upperKey.includes('MODELO')) {
-            modelo = val;
-          } else if (upperKey.includes('SUCURSAL') || upperKey.includes('DELEGACI') || upperKey.includes('CENTRO')) {
-            if (val) sucursalProd = val;
-          } else if (upperKey.includes('PROPIETARIO') && upperKey.includes('NOMBRE')) {
-            propietario = val;
-          } else if (upperKey.includes('UBICACIÓN') && upperKey.includes('NOMBRE')) {
-            ubicacion = val;
-          } else if (upperKey.includes('HORAS')) {
-            const num = Number(val);
-            if (!isNaN(num)) horasActuales = num;
-          } else if (upperKey.includes('PROPIA')) {
-            if (val.toLowerCase() === 'true' || val === '1' || val.toLowerCase() === 'sí') esPropiaFlag = true;
-          }
-        }
-
-        if (!prodServId) {
-          const keys = Object.keys(prod);
-          if (keys.length > 0) prodServId = String(prod[keys[0]] || '').trim();
-        }
-
-        if (prodServId) {
-          const revInfo = revisionesMap.get(prodServId);
-          const lineaInfo = lineasMap.get(prodServId);
-          
-          // Buscar el número de contrato en las fuentes cruzadas
-          const contratoFound = lineaInfo?.contrato || revInfo?.contrato || '';
-          const contratoStr = String(contratoFound).trim();
-          
-          // CONDICIÓN ABSOLUTA: El contrato tiene que existir, no estar vacío y no ser "Sin Contrato"
-          const tieneContratoValido = contratoStr !== '' && 
-                                      contratoStr.toUpperCase() !== 'SIN CONTRATO' && 
-                                      contratoStr.toUpperCase() !== 'UNDEFINED' && 
-                                      contratoStr.toUpperCase() !== 'NULL' &&
-                                      contratoStr !== '0';
-
-          if (tieneContratoValido || esPropiaFlag) {
-            const sucursalFinal = sucursalProd || lineaInfo?.sucursal || 'S01';
-            let fechaProximaStr = 'Pendiente';
-
-            if (tieneContratoValido) {
-              fechaProximaStr = calcularProximaRevisionContrato(revInfo?.ultimaFecha || null, revInfo?.numRevisionesAnuales || 1);
-            } else if (esPropiaFlag) {
-              const historico = historialProdMap.get(prodServId) || [];
-              const ultimaRevPropia = historico.length > 0 ? historico[historico.length - 1].fecha : null;
-              fechaProximaStr = calcularProximaRevisionPropia(ultimaRevPropia, horasActuales, modelo, historico);
-            }
-
-            resultadoFinal.push({
-              'Nº prod. servicio': prodServId,
-              'Nº Serie': numSerie || 'N/A',
-              'Modelo': modelo || 'N/A',
-              'Sucursal': sucursalFinal,
-              'Nº Contrato': contratoStr,
-              'Fecha Próxima Revisión': fechaProximaStr,
-              'Nombre Cliente Propietario': propietario || 'N/A',
-              'Nombre Cliente Ubicación': ubicacion || 'N/A',
-              'Nº de horas': horasActuales,
-              'Tipo Registro': tieneContratoValido ? 'Contratado' : 'Propia',
-              idUnico: `${index}_${prodServId}`
-            });
-          }
-        }
-      });
-
-      localStorage.setItem('mantenim_planificacion_data', JSON.stringify(resultadoFinal));
-      setProcessedData(resultadoFinal);
-      setIsError(false);
-      setResultMessage(`¡Éxito! Procesados ${resultadoFinal.length} equipos con contrato válido.`);
-    } catch (error: any) {
-      setIsError(true);
-      setResultMessage(`Error al procesar: ${error.message}`);
-    } finally {
-      setLoading(false);
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+    if (scrollHeight - scrollTop <= clientHeight + 400) {
+      setVisibleCount(prev => Math.min(prev + 300, filteredAndSortedItems.length));
     }
   };
 
-  const handleDownloadExcel = () => {
-    if (processedData.length === 0) return;
-    const worksheet = XLSX.utils.json_to_sheet(processedData);
+  const handleSort = (field: string) => {
+    if (sortField === field) {
+      setSortDirection(prev => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  const resetAllFilters = () => {
+    setGlobalSearch('');
+    setColFilters({ prodServ: '', serie: '', modelo: '', sucursal: '', contrato: '', fechaProx: '', propietario: '', ubicacion: '' });
+  };
+
+  const hasActiveFilters = globalSearch !== '' || Object.values(colFilters).some(val => val !== '');
+
+  const handleExportFiltered = () => {
+    if (filteredAndSortedItems.length === 0) return;
+    const worksheet = XLSX.utils.json_to_sheet(filteredAndSortedItems);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Planificacion_Contratos');
     XLSX.writeFile(workbook, `Planificacion_Contratos_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
-  const allAssigned = Boolean(files.revisiones && files.productos && files.lineasContrato && files.pedidos && files.pedidosReg);
+  const renderSortIcon = (field: string) => {
+    if (sortField !== field) return <ArrowUpDown className="w-3.5 h-3.5 ml-1 text-muted-foreground/50 shrink-0" />;
+    return sortDirection === 'asc' ? <ChevronUp className="w-3.5 h-3.5 ml-1 text-primary shrink-0" /> : <ChevronDown className="w-3.5 h-3.5 ml-1 text-primary shrink-0" />;
+  };
+
+  const displayedItems = filteredAndSortedItems.slice(0, visibleCount);
 
   return (
-    <div className="space-y-6 p-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold tracking-tight">Sincronización (Solo Contratos Válidos)</h2>
-        <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded font-medium">Filtro Activo</span>
-      </div>
-      
-      <div className="p-6 bg-card border rounded-lg shadow-sm space-y-6">
+    <div className="p-6 space-y-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h3 className="text-lg font-semibold mb-1">Arrastra tus 5 excels de Business Central</h3>
+          <h2 className="text-2xl font-bold tracking-tight">Planificación / Revisiones</h2>
           <p className="text-sm text-muted-foreground">
-            Se descartarán automáticamente todos los equipos que no tengan contrato.
+            Listado exclusivo de equipos con contrato activo y fechas de revisión calculadas.
           </p>
         </div>
 
-        <div
-          onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-          onDragLeave={() => setIsDragging(false)}
-          onDrop={handleDrop}
-          onClick={() => fileInputRef.current?.click()}
-          className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all ${
-            isDragging ? 'border-primary bg-primary/5 scale-[1.01]' : 'border-muted-foreground/30 hover:border-primary/50 bg-muted/20'
-          }`}
-        >
-          <input ref={fileInputRef} type="file" multiple accept=".xlsx, .xls" onChange={handleFileSelect} className="hidden" />
-          <div className="flex flex-col items-center justify-center space-y-3">
-            <div className="p-4 bg-primary/10 rounded-full text-primary">
-              <Upload className="w-8 h-8" />
-            </div>
-            <div>
-              <p className="text-base font-semibold">Arrastra los 5 excels aquí o haz clic para buscarlos</p>
-            </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="text-sm font-medium bg-muted px-3 py-1.5 rounded border">
+            Mostrando <span className="font-bold text-primary">{filteredAndSortedItems.length}</span> de <span className="font-bold">{items.length}</span> equipos
           </div>
-        </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {[
-            { key: 'revisiones', label: '1. Revisiones', file: files.revisiones, setter: (f: File) => setFiles(p => ({ ...p, revisiones: f })) },
-            { key: 'productos', label: '2. Productos de Servicio', file: files.productos, setter: (f: File) => setFiles(p => ({ ...p, productos: f })) },
-            { key: 'lineasContrato', label: '3. Líneas de Contrato', file: files.lineasContrato, setter: (f: File) => setFiles(p => ({ ...p, lineasContrato: f })) },
-            { key: 'pedidos', label: '4. Pedidos de Servicio', file: files.pedidos, setter: (f: File) => setFiles(p => ({ ...p, pedidos: f })) },
-            { key: 'pedidosReg', label: '5. Pedidos Registrados', file: files.pedidosReg, setter: (f: File) => setFiles(p => ({ ...p, pedidosReg: f })) },
-          ].map((item) => {
-            const inputId = `file-input-${item.key}`;
-            return (
-              <div key={item.key} onClick={() => document.getElementById(inputId)?.click()} className={`p-3 border rounded-lg flex items-center justify-between text-sm cursor-pointer transition-all hover:border-primary ${item.file ? 'bg-emerald-50/50 border-emerald-200 text-emerald-900' : 'bg-muted/30 text-muted-foreground border-dashed'}`}>
-                <input id={inputId} type="file" accept=".xlsx, .xls" className="hidden" onChange={(e) => { if (e.target.files?.[0]) item.setter(e.target.files[0]); }} />
-                <div className="flex items-center space-x-2 truncate">
-                  <FileSpreadsheet className={`w-4 h-4 flex-shrink-0 ${item.file ? 'text-emerald-600' : 'text-muted-foreground'}`} />
-                  <div className="truncate">
-                    <p className="font-semibold text-xs">{item.label}</p>
-                    <p className="text-xs truncate opacity-80">{item.file ? item.file.name : 'Haz clic o suelta aquí...'}</p>
-                  </div>
-                </div>
-                {item.file && <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 ml-2" />}
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-4 pt-2 border-t">
-          <button type="button" disabled={loading || !allAssigned} onClick={handleProcessAndSync} className="px-5 py-2.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 font-medium text-sm shadow-sm transition-all">
-            {loading ? 'Procesando...' : 'Procesar con Reglas de Mantenimiento'}
-          </button>
-          {processedData.length > 0 && (
-            <button type="button" onClick={handleDownloadExcel} className="px-5 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium text-sm flex items-center gap-2">
-              <Download className="w-4 h-4" /> Descargar Excel ({processedData.length})
+          {filteredAndSortedItems.length > 0 && (
+            <button
+              onClick={handleExportFiltered}
+              className="px-3 py-1.5 bg-emerald-600 text-white rounded text-xs font-medium hover:bg-emerald-700 flex items-center gap-1.5 shadow-sm"
+            >
+              <Download className="w-3.5 h-3.5" /> Exportar vista ({filteredAndSortedItems.length})
             </button>
           )}
         </div>
-
-        {resultMessage && (
-          <div className={`p-4 border rounded-lg text-sm font-medium flex items-start space-x-2 ${isError ? 'bg-destructive/10 text-destructive' : 'bg-emerald-50 text-emerald-800'}`}>
-            {isError ? <AlertCircle className="w-5 h-5 flex-shrink-0" /> : <CheckCircle2 className="w-5 h-5 flex-shrink-0" />}
-            <span>{resultMessage}</span>
-          </div>
-        )}
       </div>
+
+      {items.length > 0 && (
+        <div className="flex flex-col sm:flex-row gap-3 bg-card p-3 border rounded-lg shadow-sm items-center">
+          <div className="relative flex-1 w-full">
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder="Búsqueda rápida global..."
+              value={globalSearch}
+              onChange={(e) => setGlobalSearch(e.target.value)}
+              className="w-full pl-9 pr-4 py-1.5 text-sm border rounded bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
+            />
+          </div>
+
+          {hasActiveFilters && (
+            <button
+              onClick={resetAllFilters}
+              className="px-3 py-1.5 text-xs font-medium text-destructive bg-destructive/10 hover:bg-destructive/20 border border-destructive/20 rounded flex items-center gap-1.5 shrink-0"
+            >
+              <FilterX className="w-3.5 h-3.5" /> Limpiar filtros
+            </button>
+          )}
+        </div>
+      )}
+
+      {items.length === 0 ? (
+        <div className="p-12 text-center border rounded-lg bg-card text-muted-foreground">
+          <p className="text-base font-medium mb-1">No hay contratos válidos para mostrar.</p>
+          <p className="text-sm">Ninguno de los registros cargados contiene un número de contrato válido.</p>
+        </div>
+      ) : (
+        <div className="border rounded-lg bg-card overflow-hidden shadow-sm">
+          <div ref={tableContainerRef} onScroll={handleScroll} className="overflow-auto max-h-[72vh] relative">
+            <table className="w-full text-left text-sm border-collapse">
+              <thead className="bg-muted sticky top-0 z-10 shadow-sm">
+                <tr className="border-b text-muted-foreground font-semibold">
+                  <th onClick={() => handleSort('Nº prod. servicio')} className="p-2.5 cursor-pointer hover:bg-muted/80 select-none min-w-[140px]">
+                    <div className="flex items-center">Nº Prod. Servicio {renderSortIcon('Nº prod. servicio')}</div>
+                  </th>
+                  <th onClick={() => handleSort('Nº Serie')} className="p-2.5 cursor-pointer hover:bg-muted/80 select-none min-w-[130px]">
+                    <div className="flex items-center">Nº Serie {renderSortIcon('Nº Serie')}</div>
+                  </th>
+                  <th onClick={() => handleSort('Modelo')} className="p-2.5 cursor-pointer hover:bg-muted/80 select-none min-w-[150px]">
+                    <div className="flex items-center">Modelo {renderSortIcon('Modelo')}</div>
+                  </th>
+                  <th onClick={() => handleSort('Sucursal')} className="p-2.5 cursor-pointer hover:bg-muted/80 select-none min-w-[100px]">
+                    <div className="flex items-center">Sucursal {renderSortIcon('Sucursal')}</div>
+                  </th>
+                  <th onClick={() => handleSort('Nº Contrato')} className="p-2.5 cursor-pointer hover:bg-muted/80 select-none min-w-[120px]">
+                    <div className="flex items-center">Nº Contrato {renderSortIcon('Nº Contrato')}</div>
+                  </th>
+                  <th onClick={() => handleSort('Fecha Próxima Revisión')} className="p-2.5 cursor-pointer hover:bg-muted/80 select-none min-w-[150px]">
+                    <div className="flex items-center">Próxima Revisión {renderSortIcon('Fecha Próxima Revisión')}</div>
+                  </th>
+                  <th onClick={() => handleSort('Nombre Cliente Propietario')} className="p-2.5 cursor-pointer hover:bg-muted/80 select-none min-w-[190px]">
+                    <div className="flex items-center">Cliente Propietario {renderSortIcon('Nombre Cliente Propietario')}</div>
+                  </th>
+                  <th onClick={() => handleSort('Nombre Cliente Ubicación')} className="p-2.5 cursor-pointer hover:bg-muted/80 select-none min-w-[190px]">
+                    <div className="flex items-center">Ubicación {renderSortIcon('Nombre Cliente Ubicación')}</div>
+                  </th>
+                  <th onClick={() => handleSort('Nº de horas')} className="p-2.5 cursor-pointer hover:bg-muted/80 select-none min-w-[90px]">
+                    <div className="flex items-center">Horas {renderSortIcon('Nº de horas')}</div>
+                  </th>
+                </tr>
+
+                {/* FILTROS TIPO EXCEL */}
+                <tr className="bg-muted/95 border-b text-xs">
+                  <th className="p-1.5 font-normal">
+                    <select value={colFilters.prodServ} onChange={(e) => setColFilters(p => ({ ...p, prodServ: e.target.value }))} className="w-full px-1.5 py-1 border rounded bg-background">
+                      <option value="">Todos</option>
+                      {uniqueValues.prodServs.map((v, i) => <option key={i} value={v}>{v}</option>)}
+                    </select>
+                  </th>
+                  <th className="p-1.5 font-normal">
+                    <select value={colFilters.serie} onChange={(e) => setColFilters(p => ({ ...p, serie: e.target.value }))} className="w-full px-1.5 py-1 border rounded bg-background">
+                      <option value="">Todas</option>
+                      {uniqueValues.series.map((v, i) => <option key={i} value={v}>{v}</option>)}
+                    </select>
+                  </th>
+                  <th className="p-1.5 font-normal">
+                    <select value={colFilters.modelo} onChange={(e) => setColFilters(p => ({ ...p, modelo: e.target.value }))} className="w-full px-1.5 py-1 border rounded bg-background">
+                      <option value="">Todos</option>
+                      {uniqueValues.modelos.map((v, i) => <option key={i} value={v}>{v}</option>)}
+                    </select>
+                  </th>
+                  <th className="p-1.5 font-normal">
+                    <select value={colFilters.sucursal} onChange={(e) => setColFilters(p => ({ ...p, sucursal: e.target.value }))} className="w-full px-1.5 py-1 border rounded bg-background">
+                      <option value="">Todas</option>
+                      {uniqueValues.sucursales.map((v, i) => <option key={i} value={v}>{v}</option>)}
+                    </select>
+                  </th>
+                  <th className="p-1.5 font-normal">
+                    <select value={colFilters.contrato} onChange={(e) => setColFilters(p => ({ ...p, contrato: e.target.value }))} className="w-full px-1.5 py-1 border rounded bg-background">
+                      <option value="">Todos</option>
+                      {uniqueValues.contratos.map((v, i) => <option key={i} value={v}>{v}</option>)}
+                    </select>
+                  </th>
+                  <th className="p-1.5 font-normal">
+                    <select value={colFilters.fechaProx} onChange={(e) => setColFilters(p => ({ ...p, fechaProx: e.target.value }))} className="w-full px-1.5 py-1 border rounded bg-background">
+                      <option value="">Todas</option>
+                      {uniqueValues.fechasProx.map((v, i) => <option key={i} value={v}>{v}</option>)}
+                    </select>
+                  </th>
+                  <th className="p-1.5 font-normal">
+                    <select value={colFilters.propietario} onChange={(e) => setColFilters(p => ({ ...p, propietario: e.target.value }))} className="w-full px-1.5 py-1 border rounded bg-background">
+                      <option value="">Todos</option>
+                      {uniqueValues.propietarios.map((v, i) => <option key={i} value={v}>{v}</option>)}
+                    </select>
+                  </th>
+                  <th className="p-1.5 font-normal">
+                    <select value={colFilters.ubicacion} onChange={(e) => setColFilters(p => ({ ...p, ubicacion: e.target.value }))} className="w-full px-1.5 py-1 border rounded bg-background">
+                      <option value="">Todas</option>
+                      {uniqueValues.ubicaciones.map((v, i) => <option key={i} value={v}>{v}</option>)}
+                    </select>
+                  </th>
+                  <th className="p-1.5 font-normal"></th>
+                </tr>
+              </thead>
+
+              <tbody className="divide-y">
+                {displayedItems.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="p-8 text-center text-muted-foreground">
+                      No hay equipos planificados que coincidan con los filtros.
+                    </td>
+                  </tr>
+                ) : (
+                  displayedItems.map((row, idx) => (
+                    <tr key={row.idUnico || idx} className="hover:bg-muted/50 transition-colors">
+                      <td className="p-2.5 font-mono font-medium">{row['Nº prod. servicio'] || 'N/A'}</td>
+                      <td className="p-2.5 font-mono">{row['Nº Serie'] || 'N/A'}</td>
+                      <td className="p-2.5">{row['Modelo'] || 'N/A'}</td>
+                      <td className="p-2.5">
+                        <span className="px-2 py-0.5 text-xs rounded-full font-medium bg-emerald-100 text-emerald-800">
+                          {row['Sucursal'] || 'N/A'}
+                        </span>
+                      </td>
+                      <td className="p-2.5 font-medium text-emerald-700">{row['Nº Contrato']}</td>
+                      <td className="p-2.5 font-medium text-primary">{row['Fecha Próxima Revisión']}</td>
+                      <td className="p-2.5">{row['Nombre Cliente Propietario'] || 'N/A'}</td>
+                      <td className="p-2.5">{row['Nombre Cliente Ubicación'] || 'N/A'}</td>
+                      <td className="p-2.5 font-mono">{row['Nº de horas'] ?? 0}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="px-4 py-2 border-t bg-muted/30 text-xs text-muted-foreground flex justify-between items-center">
+            <span>Mostrando {displayedItems.length} de {filteredAndSortedItems.length} registros filtrados.</span>
+            {visibleCount < filteredAndSortedItems.length && (
+              <button onClick={() => setVisibleCount(filteredAndSortedItems.length)} className="text-primary hover:underline font-medium">
+                Cargar todos ({filteredAndSortedItems.length})
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-export default SyncView;
+export default RevisionesView;
