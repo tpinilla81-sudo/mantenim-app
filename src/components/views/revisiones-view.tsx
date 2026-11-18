@@ -41,12 +41,10 @@ export function RevisionesView() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        // Asegurarnos de que cada ítem tenga una fecha preliminar si no la trae
-        const enriched = parsed.map((row: any, idx: number) => ({
+        // Preparado para recibir el campo calculado por la app
+        const enriched = parsed.map((row: any) => ({
           ...row,
-          'Fecha Próxima Revisión': row['Fecha Próxima Revisión'] && row['Fecha Próxima Revisión'] !== 'Pendiente'
-            ? row['Fecha Próxima Revisión']
-            : `2026-${String((idx % 12) + 1).padStart(2, '0')}-15` // Fecha estimada preliminar para pruebas
+          'Fecha Próxima Revisión': row['Fecha Próxima Revisión'] || 'Pendiente cálculo'
         }));
         setItems(enriched);
       } catch (e) {
@@ -203,7 +201,7 @@ export function RevisionesView() {
         <div>
           <h2 className="text-2xl font-bold tracking-tight">Planificación / Revisiones</h2>
           <p className="text-sm text-muted-foreground">
-            Listado continuo con la columna de fecha de próxima revisión incorporada.
+            Listado con la columna de fecha de próxima revisión lista para aplicar las lógicas de cálculo.
           </p>
         </div>
 
@@ -349,7 +347,23 @@ export function RevisionesView() {
                     </td>
                   </tr>
                 ) : (
-                  displayedItems.map((row, idx) => (
+                  displayedItems.main?.map ? displayedItems.map((row, idx) => (
+                    <tr key={row.idUnico || idx} className="hover:bg-muted/50 transition-colors">
+                      <td className="p-2.5 font-mono font-medium">{row['Nº prod. servicio'] || 'N/A'}</td>
+                      <td className="p-2.5 font-mono">{row['Nº Serie'] || 'N/A'}</td>
+                      <td className="p-2.5">{row['Modelo'] || 'N/A'}</td>
+                      <td className="p-2.5">
+                        <span className="px-2 py-0.5 text-xs rounded-full font-medium bg-emerald-100 text-emerald-800">
+                          {row['Sucursal'] || 'N/A'}
+                        </span>
+                      </td>
+                      <td className="p-2.5">{row['Nº Contrato']}</td>
+                      <td className="p-2.5 font-medium text-primary">{row['Fecha Próxima Revisión']}</td>
+                      <td className="p-2.5">{row['Nombre Cliente Propietario'] || 'N/A'}</td>
+                      <td className="p-2.5">{row['Nombre Cliente Ubicación'] || 'N/A'}</td>
+                      <td className="p-2.5 font-mono">{row['Nº de horas'] ?? 0}</td>
+                    </tr>
+                  )) : displayedItems.map((row, idx) => (
                     <tr key={row.idUnico || idx} className="hover:bg-muted/50 transition-colors">
                       <td className="p-2.5 font-mono font-medium">{row['Nº prod. servicio'] || 'N/A'}</td>
                       <td className="p-2.5 font-mono">{row['Nº Serie'] || 'N/A'}</td>
