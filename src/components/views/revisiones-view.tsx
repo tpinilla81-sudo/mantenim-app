@@ -5,6 +5,7 @@ import { Search, ArrowUpDown, ChevronUp, ChevronDown, FilterX, Download } from '
 import * as XLSX from 'xlsx';
 
 interface ColumnFilters {
+  prodServ: string;
   serie: string;
   modelo: string;
   sucursal: string;
@@ -18,6 +19,7 @@ export function RevisionesView() {
   const [globalSearch, setGlobalSearch] = useState('');
   
   const [colFilters, setColFilters] = useState<ColumnFilters>({
+    prodServ: '',
     serie: '',
     modelo: '',
     sucursal: '',
@@ -26,7 +28,7 @@ export function RevisionesView() {
     ubicacion: '',
   });
 
-  const [sortField, setSortField] = useState<string>('Nº Serie');
+  const [sortField, setSortField] = useState<string>('Nº prod. servicio');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
   const [visibleCount, setVisibleCount] = useState(300);
@@ -44,6 +46,7 @@ export function RevisionesView() {
   }, []);
 
   const uniqueValues = useMemo(() => {
+    const prodServs = new Set<string>();
     const series = new Set<string>();
     const modelos = new Set<string>();
     const sucursales = new Set<string>();
@@ -52,16 +55,17 @@ export function RevisionesView() {
     const ubicaciones = new Set<string>();
 
     items.forEach(row => {
+      if (row['Nº prod. servicio']) prodServs.add(String(row['Nº prod. servicio']));
       if (row['Nº Serie']) series.add(String(row['Nº Serie']));
       if (row['Modelo']) modelos.add(String(row['Modelo']));
       if (row['Sucursal']) sucursales.add(String(row['Sucursal']));
       if (row['Nº Contrato']) contratos.add(String(row['Nº Contrato']));
-      const prop = row['Nombre Cliente Propietario'];
-      if (prop) propietarios.add(String(prop));
+      if (row['Nombre Cliente Propietario']) propietarios.add(String(row['Nombre Cliente Propietario']));
       if (row['Nombre Cliente Ubicación']) ubicaciones.add(String(row['Nombre Cliente Ubicación']));
     });
 
     return {
+      prodServs: Array.from(prodServs).sort(),
       series: Array.from(series).sort(),
       modelos: Array.from(modelos).sort(),
       sucursales: Array.from(sucursales).sort(),
@@ -73,6 +77,7 @@ export function RevisionesView() {
 
   const filteredAndSortedItems = useMemo(() => {
     const qGlobal = globalSearch.toLowerCase().trim();
+    const qProdServ = colFilters.prodServ.toLowerCase().trim();
     const qSerie = colFilters.serie.toLowerCase().trim();
     const qModelo = colFilters.modelo.toLowerCase().trim();
     const qSucursal = colFilters.sucursal.toLowerCase().trim();
@@ -81,7 +86,8 @@ export function RevisionesView() {
     const qUbica = colFilters.ubicacion.toLowerCase().trim();
 
     const filtered = items.filter(row => {
-      const serie = String(row['Nº Serie'] || row['Nº prod. servicio'] || '');
+      const prodServ = String(row['Nº prod. servicio'] || '');
+      const serie = String(row['Nº Serie'] || '');
       const modelo = String(row['Modelo'] || '');
       const sucursal = String(row['Sucursal'] || '');
       const contrato = String(row['Nº Contrato'] || '');
@@ -90,6 +96,7 @@ export function RevisionesView() {
 
       if (qGlobal) {
         const matchGlobal =
+          prodServ.toLowerCase().includes(qGlobal) ||
           serie.toLowerCase().includes(qGlobal) ||
           modelo.toLowerCase().includes(qGlobal) ||
           sucursal.toLowerCase().includes(qGlobal) ||
@@ -99,6 +106,7 @@ export function RevisionesView() {
         if (!matchGlobal) return false;
       }
 
+      if (qProdServ && !prodServ.toLowerCase().includes(qProdServ)) return false;
       if (qSerie && !serie.toLowerCase().includes(qSerie)) return false;
       if (qModelo && !modelo.toLowerCase().includes(qModelo)) return false;
       if (qSucursal && !sucursal.toLowerCase().includes(qSucursal)) return false;
@@ -152,7 +160,7 @@ export function RevisionesView() {
 
   const resetAllFilters = () => {
     setGlobalSearch('');
-    setColFilters({ serie: '', modelo: '', sucursal: '', contrato: '', propietario: '', ubicacion: '' });
+    setColFilters({ prodServ: '', serie: '', modelo: '', sucursal: '', contrato: '', propietario: '', ubicacion: '' });
   };
 
   const hasActiveFilters = globalSearch !== '' || Object.values(colFilters).some(val => val !== '');
@@ -178,7 +186,7 @@ export function RevisionesView() {
         <div>
           <h2 className="text-2xl font-bold tracking-tight">Planificación / Revisiones</h2>
           <p className="text-sm text-muted-foreground">
-            Listado continuo de máquinas con contrato y sucursal (S01, S02...).
+            Listado con Nº Producto de Servicio y Nº de Serie separados.
           </p>
         </div>
 
@@ -233,31 +241,40 @@ export function RevisionesView() {
             <table className="w-full text-left text-sm border-collapse">
               <thead className="bg-muted sticky top-0 z-10 shadow-sm">
                 <tr className="border-b text-muted-foreground font-semibold">
+                  <th onClick={() => handleSort('Nº prod. servicio')} className="p-2.5 cursor-pointer hover:bg-muted/80 select-none min-w-[150px]">
+                    <div className="flex items-center">Nº Prod. Servicio {renderSortIcon('Nº prod. servicio')}</div>
+                  </th>
                   <th onClick={() => handleSort('Nº Serie')} className="p-2.5 cursor-pointer hover:bg-muted/80 select-none min-w-[140px]">
                     <div className="flex items-center">Nº Serie {renderSortIcon('Nº Serie')}</div>
                   </th>
                   <th onClick={() => handleSort('Modelo')} className="p-2.5 cursor-pointer hover:bg-muted/80 select-none min-w-[160px]">
                     <div className="flex items-center">Modelo {renderSortIcon('Modelo')}</div>
                   </th>
-                  <th onClick={() => handleSort('Sucursal')} className="p-2.5 cursor-pointer hover:bg-muted/80 select-none min-w-[120px]">
+                  <th onClick={() => handleSort('Sucursal')} className="p-2.5 cursor-pointer hover:bg-muted/80 select-none min-w-[110px]">
                     <div className="flex items-center">Sucursal {renderSortIcon('Sucursal')}</div>
                   </th>
-                  <th onClick={() => handleSort('Nº Contrato')} className="p-2.5 cursor-pointer hover:bg-muted/80 select-none min-w-[140px]">
+                  <th onClick={() => handleSort('Nº Contrato')} className="p-2.5 cursor-pointer hover:bg-muted/80 select-none min-w-[130px]">
                     <div className="flex items-center">Nº Contrato {renderSortIcon('Nº Contrato')}</div>
                   </th>
-                  <th onClick={() => handleSort('Nombre Cliente Propietario')} className="p-2.5 cursor-pointer hover:bg-muted/80 select-none min-w-[210px]">
+                  <th onClick={() => handleSort('Nombre Cliente Propietario')} className="p-2.5 cursor-pointer hover:bg-muted/80 select-none min-w-[200px]">
                     <div className="flex items-center">Cliente Propietario {renderSortIcon('Nombre Cliente Propietario')}</div>
                   </th>
-                  <th onClick={() => handleSort('Nombre Cliente Ubicación')} className="p-2.5 cursor-pointer hover:bg-muted/80 select-none min-w-[210px]">
+                  <th onClick={() => handleSort('Nombre Cliente Ubicación')} className="p-2.5 cursor-pointer hover:bg-muted/80 select-none min-w-[200px]">
                     <div className="flex items-center">Ubicación {renderSortIcon('Nombre Cliente Ubicación')}</div>
                   </th>
-                  <th onClick={() => handleSort('Nº de horas')} className="p-2.5 cursor-pointer hover:bg-muted/80 select-none min-w-[100px]">
+                  <th onClick={() => handleSort('Nº de horas')} className="p-2.5 cursor-pointer hover:bg-muted/80 select-none min-w-[90px]">
                     <div className="flex items-center">Horas {renderSortIcon('Nº de horas')}</div>
                   </th>
                 </tr>
 
                 {/* FILTROS TIPO EXCEL */}
                 <tr className="bg-muted/95 border-b text-xs">
+                  <th className="p-1.5 font-normal">
+                    <select value={colFilters.prodServ} onChange={(e) => setColFilters(p => ({ ...p, prodServ: e.target.value }))} className="w-full px-1.5 py-1 border rounded bg-background">
+                      <option value="">Todos</option>
+                      {uniqueValues.prodServs.map((v, i) => <option key={i} value={v}>{v}</option>)}
+                    </select>
+                  </th>
                   <th className="p-1.5 font-normal">
                     <select value={colFilters.serie} onChange={(e) => setColFilters(p => ({ ...p, serie: e.target.value }))} className="w-full px-1.5 py-1 border rounded bg-background">
                       <option value="">Todas</option>
@@ -301,14 +318,15 @@ export function RevisionesView() {
               <tbody className="divide-y">
                 {displayedItems.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="p-8 text-center text-muted-foreground">
+                    <td colSpan={8} className="p-8 text-center text-muted-foreground">
                       No hay equipos planificados que coincidan con los filtros.
                     </td>
                   </tr>
                 ) : (
                   displayedItems.map((row, idx) => (
                     <tr key={row.idUnico || idx} className="hover:bg-muted/50 transition-colors">
-                      <td className="p-2.5 font-medium">{row['Nº Serie'] || 'N/A'}</td>
+                      <td className="p-2.5 font-mono font-medium">{row['Nº prod. servicio'] || 'N/A'}</td>
+                      <td className="p-2.5 font-mono">{row['Nº Serie'] || 'N/A'}</td>
                       <td className="p-2.5">{row['Modelo'] || 'N/A'}</td>
                       <td className="p-2.5">
                         <span className="px-2 py-0.5 text-xs rounded-full font-medium bg-emerald-100 text-emerald-800">
