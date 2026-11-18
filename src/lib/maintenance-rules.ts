@@ -32,9 +32,10 @@ export function calcularProximaRevisionContrato(ultimaFecha: Date | null, numRev
 }
 
 /**
- * LÓGICA DE MÁQUINAS PROPIAS:
- * Calcula el ritmo de trabajo anual/diario en base al histórico de horas y determina 
- * la fecha exacta de la siguiente revisión a partir de la última realizada.
+ * LÓGICA DE MÁQUINAS PROPIAS POR HORAS:
+ * 1. Calcula el siguiente hito exacto de revisión (1000, 2000, 3000, etc.).
+ * 2. Determina el ritmo de horas anuales de la máquina según su histórico más fiable.
+ * 3. Calcula cuántos días faltan para alcanzar el hito y los proyecta desde el último registro.
  */
 export function calcularProximaRevisionPropia(
   ultimaFechaRevision: Date | null,
@@ -44,36 +45,40 @@ export function calcularProximaRevisionPropia(
 ): string {
   const config = getActiveMaintenanceConfig();
   
-  // 1. Obtener intervalo de horas para revisión (ej: 1000h o regla específica del modelo)
+  // 1. Intervalo de horas para revisión (ej: 1000h o excepción del modelo)
   const intervaloHoras = config.horasPorRevisionPorModelo[modelo] || config.horasPorRevisionEstandar;
   
-  // 2. Calcular el siguiente hito de horas (ej: si está en 1.850h y toca cada 1.000h, el hito es 2.000h)
-  const proximoHitoHoras = Math.ceil((horasTotalesActuales + 1) / intervaloHoras) * intervaloHoras;
+  // 2. Siguiente hito exacto en horas (ej: si lleva 1.250h, el hito exacto es 2.000h)
+  const proximoHitoHoras = Math.floor(horasTotalesActuales / intervaloHoras) * intervaloHoras + intervaloHoras;
   const horasRestantes = proximoHitoHoras - horasTotalesActuales;
 
-  // 3. Calcular el ritmo de trabajo real (horas al día) usando el histórico de la máquina
-  let horasAlDia = 4; // Valor por defecto prudencial (~1.400 horas al año)
-  
+  // 3. Calcular las horas que hace al año basándonos en el histórico de pedidos (registro más fiable)
+  let horasAlAno = 1200; // Valor por defecto prudencial si no hay suficiente histórico
+  let fechaUltimoRegistro = new Date();
+
   if (historicoPedidos && historicoPedidos.length >= 2) {
-    // Ordenar histórico cronológicamente
     const sorted = [...historicoPedidos].sort((a, b) => a.fecha.getTime() - b.fecha.getTime());
     const primerRegistro = sorted[0];
     const ultimoRegistro = sorted[sorted.length - 1];
     
+    fechaUltimoRegistro = new Date(ultimoRegistro.fecha);
+
     const diffDias = (ultimoRegistro.fecha.getTime() - primerRegistro.fecha.getTime()) / (1000 * 60 * 60 * 24);
     const diffHoras = ultimoRegistro.horas - primerRegistro.horas;
     
-    if (diffDias > 10 && diffHoras > 0) {
-      // Ritmo real de horas trabajadas por día
-      horasAlDia = diffHoras / diffDias;
+    if (diffDias > 5 && diffHoras > 0) {
+      const horasPorDia = diffHoras / diffDias;
+      horasAlAno = horasPorDia * 365; // Proyección anual exacta de horas
     }
+  } else if (historicoPedidos && historicoPedidos.length === 1) {
+    fechaUltimoRegistro = new Date(historicoPedidos[0].fecha);
   }
 
-  // 4. Calcular los días que faltan para alcanzar el hito de horas
-  const diasRestantes = horasAlDia > 0 ? Math.round(horasRestantes / horasAlDia) : 365;
+  // 4. Calcular los días exactos que faltan para llegar a las horas del hito
+  const diasRestantes = horasAlAno > 0 ? Math.round((horasRestantes / horasAlAno) * 365) : 365;
 
-  // 5. Partir de la fecha de la última revisión real (o fecha actual si no consta) y sumar los días calculados
-  const fechaBase = ultimaFechaRevision && !isNaN(ultimaFechaRevision.getTime()) ? new Date(ultimaFechaRevision) : new Date();
+  // 5. Partir de la fecha del último registro fiable (o de la última revisión si no hay histórico) y sumar los días
+  const fechaBase = !isNaN(fechaUltimoRegistro.getTime()) ? new Date(fechaUltimoRegistro) : (ultimaFechaRevision || new Date());
   fechaBase.setDate(fechaBase.getDate() + Math.max(diasRestantes, 1));
 
   return fechaBase.toISOString().slice(0, 10);
