@@ -131,18 +131,6 @@ export function SyncView() {
     return isNaN(d.getTime()) ? null : d;
   };
 
-  // Función auxiliar para validar que el valor encontrado sea un número/código de contrato real y no un tipo (como ALQLARGO o M1)
-  const esNumeroContratoValido = (val: string): boolean => {
-    if (!val) return false;
-    const upper = val.toUpperCase();
-    if (upper === 'SIN CONTRATO' || upper === 'UNDEFINED' || upper === 'NULL' || upper === 'N/A' || upper === '0') return false;
-    // Excluir palabras típicas de tipos de contrato o tarifas
-    if (upper === 'ALQLARGO' || upper === 'ALQCORTO' || upper === 'M1' || upper.includes('TARIFA') || upper.includes('TIPO')) {
-      return false;
-    }
-    return true;
-  };
-
   const handleProcessAndSync = async () => {
     if (!files.revisiones || !files.productos || !files.lineasContrato || !files.pedidos || !files.pedidosReg) {
       setIsError(true);
@@ -164,7 +152,7 @@ export function SyncView() {
         throw new Error("El fichero de Productos de Servicio está vacío.");
       }
 
-      // 1. Mapa de Revisiones (buscando explícitamente el número de contrato)
+      // 1. Mapa de Revisiones
       const revisionesMap = new Map<string, { contrato: string; ultimaFecha: Date | null; numRevisionesAnuales: number }>();
       revData.forEach((rev) => {
         let prodServ = '';
@@ -174,10 +162,10 @@ export function SyncView() {
 
         for (const k of Object.keys(rev)) {
           const val = String(rev[k] || '').trim();
-          const upper = k.toUpperCase();
+          const upper = k.toUpperCase().trim();
           if (upper.includes('PRODUCTO') || upper.includes('PROD. SERVICIO') || upper.includes('Nº PROD') || upper.includes('CÓDIGO')) {
             if (val) prodServ = val;
-          } else if ((upper.includes('Nº CONTRATO') || upper.includes('CÓDIGO CONTRATO') || upper === 'CONTRATO' || upper.includes('N. CONTRATO')) && esNumeroContratoValido(val)) {
+          } else if ((upper === 'Nº CONTRATO' || upper === 'N. CONTRATO' || upper === 'CONTRATO') && !upper.includes('GRUPO') && val) {
             numContrato = val;
           } else if (upper.includes('FECHA') || upper.includes('ULTIMA') || upper.includes('ÚLTIMA') || upper.includes('SERVICIO')) {
             fechaUltima = parseExcelDate(rev[k]);
@@ -187,23 +175,12 @@ export function SyncView() {
           }
         }
 
-        // Si no encontró con el filtro estricto, buscamos cualquier columna contrato que no sea tipo
-        if (!numContrato) {
-          for (const k of Object.keys(rev)) {
-            const val = String(rev[k] || '').trim();
-            if (k.toUpperCase().includes('CONTRATO') && esNumeroContratoValido(val)) {
-              numContrato = val;
-              break;
-            }
-          }
-        }
-
         if (prodServ) {
           revisionesMap.set(prodServ, { contrato: numContrato, ultimaFecha: fechaUltima, numRevisionesAnuales: revAnuales });
         }
       });
 
-      // 2. Mapa de Líneas de Contrato
+      // 2. Mapa de Líneas de Contrato (BUSCANDO ESTRICTAMENTE "Nº Contrato" y bloqueando "Cód. grupo contrato")
       const lineasMap = new Map<string, { contrato: string; sucursal: string }>();
       lineasContratoData.forEach((linea) => {
         let prodServ = '';
@@ -211,23 +188,17 @@ export function SyncView() {
         let suc = '';
         for (const k of Object.keys(linea)) {
           const val = String(linea[k] || '').trim();
-          const upper = k.toUpperCase();
+          const upper = k.toUpperCase().trim();
+
+          // Ignorar tajantemente las columnas de grupo o tipo de contrato que no sean la C
+          if (upper.includes('GRUPO') || upper.includes('TIPO')) continue;
+
           if (upper.includes('PRODUCTO') || upper.includes('PROD. SERVICIO') || upper.includes('Nº PROD') || upper.includes('CÓDIGO')) {
             if (val) prodServ = val;
-          } else if ((upper.includes('Nº CONTRATO') || upper.includes('CÓDIGO CONTRATO') || upper === 'CONTRATO' || upper.includes('N. CONTRATO')) && !upper.includes('GRUPO') && esNumeroContratoValido(val)) {
+          } else if ((upper === 'Nº CONTRATO' || upper === 'N. CONTRATO' || upper === 'CONTRATO') && val) {
             numContrato = val;
           } else if (upper.includes('SUCURSAL') || upper.includes('CENTRO') || upper.includes('DELEGACI')) {
             if (val) suc = val;
-          }
-        }
-
-        if (!numContrato) {
-          for (const k of Object.keys(linea)) {
-            const val = String(linea[k] || '').trim();
-            if (k.toUpperCase().includes('CONTRATO') && !k.toUpperCase().includes('GRUPO') && esNumeroContratoValido(val)) {
-              numContrato = val;
-              break;
-            }
           }
         }
 
@@ -281,9 +252,11 @@ export function SyncView() {
           const val = String(prod[k] || '').trim();
           const upperKey = k.trim().toUpperCase();
           
+          if (upperKey.includes('GRUPO') || upperKey.includes('TIPO')) continue;
+
           if (upperKey === 'Nº' || upperKey === 'Nº PRODUCTO' || upperKey.includes('Nº PROD') || upperKey.includes('CÓDIGO')) {
             if (!prodServId) prodServId = val;
-          } else if (upperKey.includes('CONTRATO') && esNumeroContratoValido(val)) {
+          } else if ((upperKey === 'Nº CONTRATO' || upperKey === 'N. CONTRATO' || upperKey === 'CONTRATO') && val) {
             contratoEnProd = val;
           } else if (upperKey.includes('SERIE') && !upperKey.includes('PRODUCTO')) {
             numSerie = val;
@@ -315,7 +288,12 @@ export function SyncView() {
           const contratoFinal = contratoEnProd || lineaInfo?.contrato || revInfo?.contrato || '';
           const contratoStr = String(contratoFinal).trim();
           
-          const esValido = esNumeroContratoValido(contratoStr);
+          const upperC = contratoStr.toUpperCase();
+          const esValido = contratoStr !== '' && 
+                           upperC !== 'SIN CONTRATO' && 
+                           upperC !== 'UNDEFINED' && 
+                           upperC !== 'NULL' &&
+                           contratoStr !== '0';
 
           if (esValido || esPropiaFlag) {
             const sucursalFinal = sucursalProd || lineaInfo?.sucursal || 'S01';
@@ -350,7 +328,7 @@ export function SyncView() {
       setProcessedData(resultadoFinal);
       setHasStoredData(true);
       setIsError(false);
-      setResultMessage(`¡Éxito! Procesados ${resultadoFinal.length} equipos con número de contrato válido.`);
+      setResultMessage(`¡Éxito! Procesados ${resultadoFinal.length} equipos con la columna Nº Contrato correcta.`);
     } catch (error: any) {
       setIsError(true);
       setResultMessage(`Error al procesar: ${error.message}`);
@@ -373,19 +351,17 @@ export function SyncView() {
   return (
     <div className="space-y-6 p-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold tracking-tight">Sincronización y Memoria Persistente</h2>
+        <h2 className="text-2xl font-bold tracking-tight">Sincronización de Ficheros</h2>
         <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded font-medium">
-          {hasStoredData ? '✓ Datos guardados en navegador' : 'Pendiente de sincronizar'}
+          {hasStoredData ? '✓ Datos guardados' : 'Pendiente'}
         </span>
       </div>
       
       <div className="p-6 bg-card border rounded-lg shadow-sm space-y-6">
         <div>
-          <h3 className="text-lg font-semibold mb-1">Estado de los Ficheros</h3>
+          <h3 className="text-lg font-semibold mb-1">Carga de Ficheros</h3>
           <p className="text-sm text-muted-foreground">
-            {hasStoredData 
-              ? 'Ya tienes los datos guardados. Vuelve a procesar si has cambiado los excels.' 
-              : 'Arrastra tus 5 excels para guardarlos permanentemente.'}
+            Leyendo estrictamente la columna Nº Contrato (Columna C) e ignorando grupos.
           </p>
         </div>
 
@@ -405,7 +381,7 @@ export function SyncView() {
             </div>
             <div>
               <p className="text-base font-semibold">
-                {hasStoredData ? 'Arrastra nuevos excels aquí para actualizar los datos' : 'Arrastra los 5 excels aquí o haz clic para buscarlos'}
+                {hasStoredData ? 'Arrastra nuevos excels para actualizar' : 'Arrastra los 5 excels aquí'}
               </p>
             </div>
           </div>
@@ -427,7 +403,7 @@ export function SyncView() {
                   <FileSpreadsheet className={`w-4 h-4 flex-shrink-0 ${item.file ? 'text-emerald-600' : 'text-muted-foreground'}`} />
                   <div className="truncate">
                     <p className="font-semibold text-xs">{item.label}</p>
-                    <p className="text-xs truncate opacity-80">{item.file ? item.file.name : (hasStoredData ? 'Guardado en memoria ✓' : 'Haz clic o suelta aquí...')}</p>
+                    <p className="text-xs truncate opacity-80">{item.file ? item.file.name : (hasStoredData ? 'Guardado ✓' : 'Haz clic o suelta aquí...')}</p>
                   </div>
                 </div>
                 {item.file && <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 ml-2" />}
@@ -444,7 +420,7 @@ export function SyncView() {
             className="px-5 py-2.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 font-medium text-sm shadow-sm transition-all flex items-center gap-2"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            {loading ? 'Procesando...' : 'Procesar y Guardar Permanentemente'}
+            {loading ? 'Procesando...' : 'Procesar y Guardar'}
           </button>
           
           {(processedData.length > 0 || hasStoredData) && (
