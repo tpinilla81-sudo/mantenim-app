@@ -5,7 +5,7 @@ export interface MaintenanceRuleConfig {
 }
 
 export const maintenanceConfig: MaintenanceRuleConfig = {
-  horasPorRevisionEstandar: 1000, // Aquí puedes cambiar 1000 por 500 u otro valor cuando lo necesites
+  horasPorRevisionEstandar: 1000,
   horasPorRevisionPorModelo: {},
   mesesRevisionesContratoEstandar: 12,
 };
@@ -27,8 +27,8 @@ export function calcularProximaRevisionPropia(
   const proximoHitoHoras = Math.ceil((horasTotalesActuales + 1) / intervaloHoras) * intervaloHoras;
   const horasRestantes = proximoHitoHoras - horasTotalesActuales;
 
-  let horasAlDia = 3; // Ritmo estimado (~1000h al año)
-  if (historicoPedidos.length >= 2) {
+  let horasAlDia = 3; 
+  if (historicoPedidos && historicoPedidos.length >= 2) {
     const sorted = [...historicoPedidos].sort((a, b) => a.fecha.getTime() - b.fecha.getTime());
     const diffDias = (sorted[sorted.length - 1].fecha.getTime() - sorted[0].fecha.getTime()) / (1000 * 60 * 60 * 24);
     const diffHoras = sorted[sorted.length - 1].horas - sorted[0].horas;
