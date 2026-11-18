@@ -147,7 +147,7 @@ export function SyncView() {
         for (const k of Object.keys(rev)) {
           const val = rev[k];
           const upper = k.toUpperCase();
-          if (upper.includes('PRODUCTO') || upper.includes('PROD. SERVICIO') || upper.includes('Nº PROD')) {
+          if (upper.includes('PRODUCTO') || upper.includes('PROD. SERVICIO') || upper.includes('Nº PROD') || upper.includes('CÓDIGO')) {
             if (val) prodServ = String(val).trim();
           } else if (upper.includes('CONTRATO')) {
             if (val) numContrato = String(val).trim();
@@ -173,9 +173,9 @@ export function SyncView() {
         for (const k of Object.keys(linea)) {
           const val = String(linea[k] || '').trim();
           const upper = k.toUpperCase();
-          if (upper.includes('PRODUCTO') || upper.includes('PROD. SERVICIO') || upper.includes('Nº PROD')) {
+          if (upper.includes('PRODUCTO') || upper.includes('PROD. SERVICIO') || upper.includes('Nº PROD') || upper.includes('CÓDIGO')) {
             if (val) prodServ = val;
-          } else if (upper.includes('CONTRATO') && !upper.includes('GRUPO')) {
+          } else if (upper.includes('CONTRATO')) {
             if (val) numContrato = val;
           } else if (upper.includes('SUCURSAL') || upper.includes('CENTRO') || upper.includes('DELEGACI')) {
             if (val) suc = val;
@@ -196,7 +196,7 @@ export function SyncView() {
         for (const k of Object.keys(reg)) {
           const val = reg[k];
           const upper = k.toUpperCase();
-          if (upper.includes('PRODUCTO') || upper.includes('PROD. SERVICIO') || upper.includes('Nº PROD')) {
+          if (upper.includes('PRODUCTO') || upper.includes('PROD. SERVICIO') || upper.includes('Nº PROD') || upper.includes('CÓDIGO')) {
             if (val) prodServ = String(val).trim();
           } else if (upper.includes('FECHA')) {
             fechaReg = parseExcelDate(val);
@@ -213,7 +213,7 @@ export function SyncView() {
         }
       });
 
-      // 4. Procesamiento excluyendo tajantemente cualquier "Sin Contrato"
+      // 4. Procesamiento final cogiendo el contrato de donde esté disponible
       const resultadoFinal: any[] = [];
       
       prodData.forEach((prod, index) => {
@@ -224,14 +224,17 @@ export function SyncView() {
         let propietario = '';
         let ubicacion = '';
         let horasActuales = 0;
+        let contratoEnProd = '';
         let esPropiaFlag = false;
 
         for (const k of Object.keys(prod)) {
           const val = String(prod[k] || '').trim();
           const upperKey = k.trim().toUpperCase();
           
-          if (upperKey === 'Nº' || upperKey === 'Nº PRODUCTO' || upperKey.includes('Nº PROD')) {
+          if (upperKey === 'Nº' || upperKey === 'Nº PRODUCTO' || upperKey.includes('Nº PROD') || upperKey.includes('CÓDIGO')) {
             if (!prodServId) prodServId = val;
+          } else if (upperKey.includes('CONTRATO')) {
+            if (val) contratoEnProd = val;
           } else if (upperKey.includes('SERIE') && !upperKey.includes('PRODUCTO')) {
             numSerie = val;
           } else if (upperKey.includes('MODELO')) {
@@ -259,11 +262,10 @@ export function SyncView() {
           const revInfo = revisionesMap.get(prodServId);
           const lineaInfo = lineasMap.get(prodServId);
           
-          // Extraer contrato de las fuentes
-          const contratoFound = lineaInfo?.contrato || revInfo?.contrato || '';
-          const contratoStr = String(contratoFound).trim();
+          // Buscar el contrato prioritariamente en las líneas/revisiones, o directamente en el producto si el excel lo trae
+          const contratoFinal = contratoEnProd || lineaInfo?.contrato || revInfo?.contrato || '';
+          const contratoStr = String(contratoFinal).trim();
           
-          // FILTRO BLINDADO: El contrato tiene que ser real y no contener "SIN CONTRATO"
           const esValido = contratoStr !== '' && 
                            contratoStr.toUpperCase() !== 'SIN CONTRATO' && 
                            contratoStr.toUpperCase() !== 'UNDEFINED' && 
@@ -302,7 +304,7 @@ export function SyncView() {
       localStorage.setItem('mantenim_planificacion_data', JSON.stringify(resultadoFinal));
       setProcessedData(resultadoFinal);
       setIsError(false);
-      setResultMessage(`¡Éxito! Procesados ${resultadoFinal.length} equipos con contrato válido.`);
+      setResultMessage(`¡Éxito! Procesados ${resultadoFinal.length} equipos con contrato.`);
     } catch (error: any) {
       setIsError(true);
       setResultMessage(`Error al procesar: ${error.message}`);
@@ -324,15 +326,15 @@ export function SyncView() {
   return (
     <div className="space-y-6 p-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold tracking-tight">Sincronización (Motor Blindado)</h2>
+        <h2 className="text-2xl font-bold tracking-tight">Sincronización de Ficheros</h2>
         <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded font-medium">Activo</span>
       </div>
       
       <div className="p-6 bg-card border rounded-lg shadow-sm space-y-6">
         <div>
-          <h3 className="text-lg font-semibold mb-1">Arrastra tus 5 excels de Business Central</h3>
+          <h3 className="text-lg font-semibold mb-1">Arrastra tus 5 excels</h3>
           <p className="text-sm text-muted-foreground">
-            Se descartarán al 100% los equipos sin contrato.
+            Se capturarán automáticamente los números de contrato de los excels.
           </p>
         </div>
 
@@ -383,7 +385,7 @@ export function SyncView() {
 
         <div className="flex flex-wrap items-center gap-4 pt-2 border-t">
           <button type="button" disabled={loading || !allAssigned} onClick={handleProcessAndSync} className="px-5 py-2.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 font-medium text-sm shadow-sm transition-all">
-            {loading ? 'Procesando...' : 'Procesar con Reglas de Mantenimiento'}
+            {loading ? 'Procesando...' : 'Procesar Ficheros'}
           </button>
           {processedData.length > 0 && (
             <button type="button" onClick={handleDownloadExcel} className="px-5 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium text-sm flex items-center gap-2">
