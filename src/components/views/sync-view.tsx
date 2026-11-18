@@ -152,8 +152,7 @@ export function SyncView() {
           } else if (upper.includes('CONTRATO')) {
             if (val) numContrato = String(val).trim();
           } else if (upper.includes('FECHA') || upper.includes('ULTIMA') || upper.includes('ÚLTIMA') || upper.includes('SERVICIO')) {
-            const parsed = parseExcelDate(val);
-            if (parsed) fechaUltima = parsed;
+            fechaUltima = parseExcelDate(val);
           } else if (upper.includes('REVISIONES') || upper.includes('CANTIDAD') || upper.includes('Nº REVISIONES')) {
             const parsedNum = Number(val);
             if (!isNaN(parsedNum) && parsedNum > 0) revAnuales = parsedNum;
@@ -187,7 +186,7 @@ export function SyncView() {
         }
       });
 
-      // 3. Histórico de horas por equipo para máquinas propias
+      // 3. Histórico de horas
       const historialProdMap = new Map<string, { fecha: Date; horas: number }[]>();
       pedidosRegData.forEach((reg) => {
         let prodServ = '';
@@ -214,7 +213,7 @@ export function SyncView() {
         }
       });
 
-      // 4. PROCESAMIENTO ESTRICTO: Solo equipos con contrato real o propias con flag
+      // 4. Procesamiento excluyendo tajantemente cualquier "Sin Contrato"
       const resultadoFinal: any[] = [];
       
       prodData.forEach((prod, index) => {
@@ -260,22 +259,22 @@ export function SyncView() {
           const revInfo = revisionesMap.get(prodServId);
           const lineaInfo = lineasMap.get(prodServId);
           
-          // Buscar el número de contrato en las fuentes cruzadas
+          // Extraer contrato de las fuentes
           const contratoFound = lineaInfo?.contrato || revInfo?.contrato || '';
           const contratoStr = String(contratoFound).trim();
           
-          // CONDICIÓN ABSOLUTA: El contrato tiene que existir, no estar vacío y no ser "Sin Contrato"
-          const tieneContratoValido = contratoStr !== '' && 
-                                      contratoStr.toUpperCase() !== 'SIN CONTRATO' && 
-                                      contratoStr.toUpperCase() !== 'UNDEFINED' && 
-                                      contratoStr.toUpperCase() !== 'NULL' &&
-                                      contratoStr !== '0';
+          // FILTRO BLINDADO: El contrato tiene que ser real y no contener "SIN CONTRATO"
+          const esValido = contratoStr !== '' && 
+                           contratoStr.toUpperCase() !== 'SIN CONTRATO' && 
+                           contratoStr.toUpperCase() !== 'UNDEFINED' && 
+                           contratoStr.toUpperCase() !== 'NULL' &&
+                           contratoStr !== '0';
 
-          if (tieneContratoValido || esPropiaFlag) {
+          if (esValido || esPropiaFlag) {
             const sucursalFinal = sucursalProd || lineaInfo?.sucursal || 'S01';
             let fechaProximaStr = 'Pendiente';
 
-            if (tieneContratoValido) {
+            if (esValido) {
               fechaProximaStr = calcularProximaRevisionContrato(revInfo?.ultimaFecha || null, revInfo?.numRevisionesAnuales || 1);
             } else if (esPropiaFlag) {
               const historico = historialProdMap.get(prodServId) || [];
@@ -293,7 +292,7 @@ export function SyncView() {
               'Nombre Cliente Propietario': propietario || 'N/A',
               'Nombre Cliente Ubicación': ubicacion || 'N/A',
               'Nº de horas': horasActuales,
-              'Tipo Registro': tieneContratoValido ? 'Contratado' : 'Propia',
+              'Tipo Registro': esValido ? 'Contratado' : 'Propia',
               idUnico: `${index}_${prodServId}`
             });
           }
@@ -325,15 +324,15 @@ export function SyncView() {
   return (
     <div className="space-y-6 p-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold tracking-tight">Sincronización (Solo Contratos Válidos)</h2>
-        <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded font-medium">Filtro Activo</span>
+        <h2 className="text-2xl font-bold tracking-tight">Sincronización (Motor Blindado)</h2>
+        <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded font-medium">Activo</span>
       </div>
       
       <div className="p-6 bg-card border rounded-lg shadow-sm space-y-6">
         <div>
           <h3 className="text-lg font-semibold mb-1">Arrastra tus 5 excels de Business Central</h3>
           <p className="text-sm text-muted-foreground">
-            Se descartarán automáticamente todos los equipos que no tengan contrato.
+            Se descartarán al 100% los equipos sin contrato.
           </p>
         </div>
 
