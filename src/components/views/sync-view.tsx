@@ -3,6 +3,7 @@
 import React, { useState, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Download } from 'lucide-react';
+import { calcularProximaRevisionContrato, calcularProximaRevisionPropia } from '@/lib/maintenance-rules';
 
 export function SyncView() {
   const [loading, setLoading] = useState(false);
@@ -102,17 +103,10 @@ export function SyncView() {
     });
   };
 
-  // Utilidad para formatear fechas a YYYY-MM-DD
-  const formatDate = (date: Date) => {
-    return date.toISOString().slice(0, 10);
-  };
-
-  // Parseador robusto de fechas de Excel / Business Central
   const parseExcelDate = (val: any): Date | null => {
     if (!val) return null;
     if (val instanceof Date) return val;
     if (typeof val === 'number') {
-      // Formato serial de Excel
       const d = new Date(Math.round((val - (25567 + 2)) * 86400 * 1000));
       return isNaN(d.getTime()) ? null : d;
     }
@@ -142,13 +136,13 @@ export function SyncView() {
         throw new Error("El fichero de Productos de Servicio está vacío.");
       }
 
-      // 1. Mapear última fecha de revisión e información de contrato desde Revisiones
+      // 1. Mapa de Revisiones
       const revisionesMap = new Map<string, { contrato: string; ultimaFecha: Date | null; numRevisionesAnuales: number }>();
       revData.forEach((rev) => {
         let prodServ = '';
         let numContrato = '';
         let fechaUltima: Date | null = null;
-        let revAnuales = 1; // Por defecto 1 revisión al año
+        let revAnuales = 1;
 
         for (const k of Object.keys(rev)) {
           const val = rev[k];
@@ -167,11 +161,7 @@ export function SyncView() {
         }
 
         if (prodServ) {
-          revisionesMap.set(prodServ, {
-            contrato: numContrato,
-            ultimaFecha: fechaUltima,
-            numRevisionesAnuales: revAnuales
-          });
+          revisionesMap.set(prodServ, { contrato: numContrato, ultimaFecha: fechaUltima, numRevisionesAnuales: revAnuales });
         }
       });
 
@@ -197,8 +187,8 @@ export function SyncView() {
         }
       });
 
-      // 3. Histórico de pedidos registrados para calcular ritmo anual de horas en máquinas propias o estimaciones
-      const historialHorasMap = new Map<string, { ultimaFecha: Date | null; horasActuales: number }>();
+      // 3. Histórico de horas por equipo para máquinas propias
+      const historialProdMap = new Map<string, { fecha: Date; horas: number }[]>();
       pedidosRegData.forEach((reg) => {
         let prodServ = '';
         let fechaReg: Date | null = null;
@@ -210,33 +200,23 @@ export function SyncView() {
           if (upper.includes('PRODUCTO') || upper.includes('PROD. SERVICIO') || upper.includes('Nº PROD')) {
             if (val) prodServ = String(val).trim();
           } else if (upper.includes('FECHA')) {
-            const parsed = parseExcelDate(val);
-            if (parsed) fechaReg = parsed;
+            fechaReg = parseExcelDate(val);
           } else if (upper.includes('HORAS')) {
             const num = Number(val);
             if (!isNaN(num)) horasReg = num;
           }
         }
 
-        if (prodServ) {
-          const existing = historialHorasMap.get(prodServ);
-          if (!existing) {
-            historialHorasMap.set(prodServ, { ultimaFecha: fechaReg, horasActuales: horasReg });
-          } else {
-            if (fechaReg && (!existing.ultimaFecha || fechaReg > existing.ultimaFecha)) {
-              existing.ultimaFecha = fechaReg;
-            }
-            if (horasReg > existing.horasActuales) {
-              existing.horasActuales = horasReg;
-            }
-          }
+        if (prodServ && fechaReg) {
+          const list = historialProdMap.get(prodServ) || [];
+          list.push({ fecha: fechaReg, horas: horasReg });
+          historialProdMap.set(prodServ, list);
         }
       });
 
-      // 4. FUSIÓN Y APLICACIÓN DE LÓGICAS DE CÁLCULO
+      // 4. Procesamiento final (Contratos + Propias con reglas aplicadas)
       const resultadoFinal: any[] = [];
-      const hoy = new Date();
-
+      
       prodData.forEach((prod, index) => {
         let prodServId = '';
         let numSerie = '';
@@ -245,6 +225,7 @@ export function SyncView() {
         let propietario = '';
         let ubicacion = '';
         let horasActuales = 0;
+        let esPropiaFlag = false;
 
         for (const k of Object.keys(prod)) {
           const val = String(prod[k] || '').trim();
@@ -265,6 +246,8 @@ export function SyncView() {
           } else if (upperKey.includes('HORAS')) {
             const num = Number(val);
             if (!isNaN(num)) horasActuales = num;
+          } else if (upperKey.includes('PROPIA')) {
+            if (val.toLowerCase() === 'true' || val === '1' || val.toLowerCase() === 'sí') esPropiaFlag = true;
           }
         }
 
@@ -277,25 +260,18 @@ export function SyncView() {
           const revInfo = revisionesMap.get(prodServId);
           const lineaInfo = lineasMap.get(prodServId);
           const contratoFinal = lineaInfo?.contrato || revInfo?.contrato;
+          const tieneContrato = revInfo !== undefined || lineaInfo !== undefined;
 
-          if (revInfo !== undefined || lineaInfo !== undefined) {
+          if (tieneContrato || esPropiaFlag) {
             const sucursalFinal = sucursalProd || lineaInfo?.sucursal || 'S01';
             let fechaProximaStr = 'Pendiente';
 
-            // ==========================================
-            // LÓGICA 1: MÁQUINAS CON CONTRATO
-            // ==========================================
-            // Sabemos el nº de revisiones anuales contratadas. Cogemos la última revisión y calculamos la próxima.
-            if (revInfo?.ultimaFecha) {
-              const ultima = new Date(revInfo.ultimaFecha);
-              const mesesAIncrementar = Math.round(12 / (revInfo.numRevisionesAnuales || 1));
-              ultima.setMonth(ultima.getMonth() + mesesAIncrementar);
-              fechaProximaStr = formatDate(ultima);
-            } else {
-              // Si no hay fecha de última revisión registrada, estimamos 1 año desde hoy
-              const estimada = new Date(hoy);
-              estimada.setFullYear(estimada.getFullYear() + 1);
-              fechaProximaStr = formatDate(estimada);
+            if (tieneContrato) {
+              fechaProximaStr = calcularProximaRevisionContrato(revInfo?.ultimaFecha || null, revInfo?.numRevisionesAnuales || 1);
+            } else if (esPropiaFlag) {
+              const historico = historialProdMap.get(prodServId) || [];
+              const ultimaRevPropia = historico.length > 0 ? historico[historico.length - 1].fecha : null;
+              fechaProximaStr = calcularProximaRevisionPropia(ultimaRevPropia, horasActuales, modelo, historico);
             }
 
             resultadoFinal.push({
@@ -308,22 +284,20 @@ export function SyncView() {
               'Nombre Cliente Propietario': propietario || 'N/A',
               'Nombre Cliente Ubicación': ubicacion || 'N/A',
               'Nº de horas': horasActuales,
-              'Tipo Registro': 'Contratado',
+              'Tipo Registro': tieneContrato ? 'Contratado' : 'Propia',
               idUnico: `${index}_${prodServId}`
             });
           }
         }
       });
 
-      const jsonString = JSON.stringify(resultadoFinal);
-      localStorage.setItem('mantenim_planificacion_data', jsonString);
-
+      localStorage.setItem('mantenim_planificacion_data', JSON.stringify(resultadoFinal));
       setProcessedData(resultadoFinal);
       setIsError(false);
-      setResultMessage(`¡Éxito! Procesados y calculados ${resultadoFinal.length} equipos con sus fechas de revisión.`);
+      setResultMessage(`¡Éxito! Procesados ${resultadoFinal.length} equipos aplicando las reglas de cálculo.`);
     } catch (error: any) {
       setIsError(true);
-      setResultMessage(`Error al procesar los ficheros: ${error.message || 'Formato no válido'}`);
+      setResultMessage(`Error al procesar: ${error.message}`);
     } finally {
       setLoading(false);
     }
@@ -333,8 +307,8 @@ export function SyncView() {
     if (processedData.length === 0) return;
     const worksheet = XLSX.utils.json_to_sheet(processedData);
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Planificacion_Contratos');
-    XLSX.writeFile(workbook, `Planificacion_Contratos_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Planificacion_Calculada');
+    XLSX.writeFile(workbook, `Planificacion_Mantenimiento_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
   const allAssigned = Boolean(files.revisiones && files.productos && files.lineasContrato && files.pedidos && files.pedidosReg);
@@ -342,15 +316,15 @@ export function SyncView() {
   return (
     <div className="space-y-6 p-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold tracking-tight">Sincronización Inteligente</h2>
-        <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded font-medium">Cálculo de Próxima Revisión</span>
+        <h2 className="text-2xl font-bold tracking-tight">Sincronización con Lógicas de Negocio</h2>
+        <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded font-medium">Motor de Cálculo Activo</span>
       </div>
       
       <div className="p-6 bg-card border rounded-lg shadow-sm space-y-6">
         <div>
-          <h3 className="text-lg font-semibold mb-1">Arrastra tus 5 excels de Business Central aquí</h3>
+          <h3 className="text-lg font-semibold mb-1">Arrastra tus 5 excels de Business Central</h3>
           <p className="text-sm text-muted-foreground">
-            Se aplicarán las reglas de cálculo automático de fechas de revisión.
+            Se calcularán automáticamente las fechas de revisión para contratos y máquinas propias (cada 1.000h).
           </p>
         </div>
 
@@ -363,14 +337,7 @@ export function SyncView() {
             isDragging ? 'border-primary bg-primary/5 scale-[1.01]' : 'border-muted-foreground/30 hover:border-primary/50 bg-muted/20'
           }`}
         >
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            accept=".xlsx, .xls"
-            onChange={handleFileSelect}
-            className="hidden"
-          />
+          <input ref={fileInputRef} type="file" multiple accept=".xlsx, .xls" onChange={handleFileSelect} className="hidden" />
           <div className="flex flex-col items-center justify-center space-y-3">
             <div className="p-4 bg-primary/10 rounded-full text-primary">
               <Upload className="w-8 h-8" />
@@ -383,21 +350,15 @@ export function SyncView() {
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {[
-            { key: 'revisiones', label: '1. Revisiones', file: files.revisiones, setter: (f: File) => setFiles(prev => ({ ...prev, revisiones: f })) },
-            { key: 'productos', label: '2. Productos de Servicio', file: files.productos, setter: (f: File) => setFiles(prev => ({ ...prev, productos: f })) },
-            { key: 'lineasContrato', label: '3. Líneas de Contrato', file: files.lineasContrato, setter: (f: File) => setFiles(prev => ({ ...prev, lineasContrato: f })) },
-            { key: 'pedidos', label: '4. Pedidos de Servicio', file: files.pedidos, setter: (f: File) => setFiles(prev => ({ ...prev, pedidos: f })) },
-            { key: 'pedidosReg', label: '5. Pedidos Registrados', file: files.pedidosReg, setter: (f: File) => setFiles(prev => ({ ...prev, pedidosReg: f })) },
+            { key: 'revisiones', label: '1. Revisiones', file: files.revisiones, setter: (f: File) => setFiles(p => ({ ...p, revisiones: f })) },
+            { key: 'productos', label: '2. Productos de Servicio', file: files.productos, setter: (f: File) => setFiles(p => ({ ...p, productos: f })) },
+            { key: 'lineasContrato', label: '3. Líneas de Contrato', file: files.lineasContrato, setter: (f: File) => setFiles(p => ({ ...p, lineasContrato: f })) },
+            { key: 'pedidos', label: '4. Pedidos de Servicio', file: files.pedidos, setter: (f: File) => setFiles(p => ({ ...p, pedidos: f })) },
+            { key: 'pedidosReg', label: '5. Pedidos Registrados', file: files.pedidosReg, setter: (f: File) => setFiles(p => ({ ...p, pedidosReg: f })) },
           ].map((item) => {
             const inputId = `file-input-${item.key}`;
             return (
-              <div 
-                key={item.key} 
-                onClick={() => document.getElementById(inputId)?.click()}
-                className={`p-3 border rounded-lg flex items-center justify-between text-sm cursor-pointer transition-all hover:border-primary ${
-                  item.file ? 'bg-emerald-50/50 border-emerald-200 text-emerald-900' : 'bg-muted/30 text-muted-foreground border-dashed'
-                }`}
-              >
+              <div key={item.key} onClick={() => document.getElementById(inputId)?.click()} className={`p-3 border rounded-lg flex items-center justify-between text-sm cursor-pointer transition-all hover:border-primary ${item.file ? 'bg-emerald-50/50 border-emerald-200 text-emerald-900' : 'bg-muted/30 text-muted-foreground border-dashed'}`}>
                 <input id={inputId} type="file" accept=".xlsx, .xls" className="hidden" onChange={(e) => { if (e.target.files?.[0]) item.setter(e.target.files[0]); }} />
                 <div className="flex items-center space-x-2 truncate">
                   <FileSpreadsheet className={`w-4 h-4 flex-shrink-0 ${item.file ? 'text-emerald-600' : 'text-muted-foreground'}`} />
@@ -413,13 +374,8 @@ export function SyncView() {
         </div>
 
         <div className="flex flex-wrap items-center gap-4 pt-2 border-t">
-          <button
-            type="button"
-            disabled={loading || !allAssigned}
-            onClick={handleProcessAndSync}
-            className="px-5 py-2.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 font-medium text-sm shadow-sm transition-all"
-          >
-            {loading ? 'Calculando...' : 'Procesar y Calcular Fechas'}
+          <button type="button" disabled={loading || !allAssigned} onClick={handleProcessAndSync} className="px-5 py-2.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 font-medium text-sm shadow-sm transition-all">
+            {loading ? 'Calculando...' : 'Procesar con Reglas de Mantenimiento'}
           </button>
           {processedData.length > 0 && (
             <button type="button" onClick={handleDownloadExcel} className="px-5 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium text-sm flex items-center gap-2">
