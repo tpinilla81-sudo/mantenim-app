@@ -23,17 +23,29 @@ export function getActiveMaintenanceConfig(): MaintenanceRuleConfig {
   return defaultMaintenanceConfig;
 }
 
+/**
+ * LÓGICA DE EQUIPOS CONTRATADOS:
+ * Toma la última fecha real de revisión del equipo y le suma los meses correspondientes 
+ * según el número de revisiones anuales estipuladas.
+ */
 export function calcularProximaRevisionContrato(
   ultimaFecha: Date | null, 
   numRevisionesAnuales: number = 1
 ): string {
+  // Si la última fecha existe y es válida, partimos de ella. Si no, usamos la fecha actual como fallback.
   const baseDate = ultimaFecha && !isNaN(ultimaFecha.getTime()) ? new Date(ultimaFecha) : new Date();
+  
   const revisiones = numRevisionesAnuales > 0 ? numRevisionesAnuales : 1;
   const mesesIncremento = Math.round(12 / revisiones);
+  
   baseDate.setMonth(baseDate.getMonth() + mesesIncremento);
   return baseDate.toISOString().slice(0, 10);
 }
 
+/**
+ * LÓGICA DE MÁQUINAS PROPIAS POR HORAS:
+ * Calcula el siguiente hito exacto en horas (1000, 2000, 3000...) según el rendimiento anual real.
+ */
 export function calcularProximaRevisionPropia(
   ultimaFechaRevision: Date | null,
   horasTotalesActuales: number,
