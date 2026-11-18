@@ -24,27 +24,33 @@ export function getActiveMaintenanceConfig(): MaintenanceRuleConfig {
 }
 
 /**
- * LÓGICA DE EQUIPOS CONTRATADOS:
- * Toma la última fecha real de revisión del equipo y le suma los meses correspondientes 
- * según el número de revisiones anuales estipuladas.
+ * Convierte un objeto Date a formato europeo estricto: DD/MM/YYYY
+ */
+function formatDateToEuropean(date: Date): string {
+  if (isNaN(date.getTime())) return 'Pendiente';
+  const day = String(date.getDate()).padStart(2, '0');
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const year = date.getFullYear();
+  return `${day}/${month}/${year}`;
+}
+
+/**
+ * LÓGICA DE EQUIPOS CONTRATADOS (Formato DD/MM/YYYY)
  */
 export function calcularProximaRevisionContrato(
   ultimaFecha: Date | null, 
   numRevisionesAnuales: number = 1
 ): string {
-  // Si la última fecha existe y es válida, partimos de ella. Si no, usamos la fecha actual como fallback.
   const baseDate = ultimaFecha && !isNaN(ultimaFecha.getTime()) ? new Date(ultimaFecha) : new Date();
-  
   const revisiones = numRevisionesAnuales > 0 ? numRevisionesAnuales : 1;
   const mesesIncremento = Math.round(12 / revisiones);
   
   baseDate.setMonth(baseDate.getMonth() + mesesIncremento);
-  return baseDate.toISOString().slice(0, 10);
+  return formatDateToEuropean(baseDate);
 }
 
 /**
- * LÓGICA DE MÁQUINAS PROPIAS POR HORAS:
- * Calcula el siguiente hito exacto en horas (1000, 2000, 3000...) según el rendimiento anual real.
+ * LÓGICA DE MÁQUINAS PROPIAS POR HORAS E HITOS EXACTOS (Formato DD/MM/YYYY)
  */
 export function calcularProximaRevisionPropia(
   ultimaFechaRevision: Date | null,
@@ -83,5 +89,5 @@ export function calcularProximaRevisionPropia(
   const fechaBase = !isNaN(fechaUltimoRegistro.getTime()) ? new Date(fechaUltimoRegistro) : (ultimaFechaRevision || new Date());
   fechaBase.setDate(fechaBase.getDate() + Math.max(diasRestantes, 1));
 
-  return fechaBase.toISOString().slice(0, 10);
+  return formatDateToEuropean(fechaBase);
 }
