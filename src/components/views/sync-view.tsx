@@ -127,99 +127,86 @@ export function SyncView() {
       const revData = await readFileAsJSON(files.revisiones);
       const prodData = await readFileAsJSON(files.productos);
       const lineasContratoData = await readFileAsJSON(files.lineasContrato);
+      const pedidosRegData = await readFileAsJSON(files.pedidosReg);
 
       if (prodData.length === 0) {
         throw new Error("El fichero de Productos de Servicio está vacío.");
       }
 
-      console.log(`📊 Filas leídas -> Revisiones: ${revData.length}, Productos: ${prodData.length}, Líneas Contrato: ${lineasContratoData.length}`);
-
-      // Helper para buscar claves de forma flexible sin importar mayúsculas o acentos
-      const findValueInRow = (row: any, keys: string[]) => {
-        for (const k of Object.keys(row)) {
-          const cleanKey = k.trim().toLowerCase();
-          for (const target of keys) {
-            if (cleanKey.includes(target.toLowerCase())) {
-              return String(row[k] || '').trim();
-            }
-          }
-        }
-        return '';
-      };
-
-      // 1. Mapa de Revisiones robusto (buscando cualquier columna que contenga 'producto' o 'servicio' o 'contrato')
+      // 1. Mapa de Revisiones
       const revisionesMap = new Map();
       revData.forEach((rev) => {
-        // Buscamos el identificador del producto de servicio en la fila de revisiones
         let prodServ = '';
         let numContrato = '';
-
         for (const k of Object.keys(rev)) {
           const val = String(rev[k] || '').trim();
-          const upperKey = k.toUpperCase();
-          if (upperKey.includes('PRODUCTO') || upperKey.includes('PROD. SERVICIO') || upperKey.includes('Nº PROD')) {
+          const upper = k.toUpperCase();
+          if (upper.includes('PRODUCTO') || upper.includes('PROD. SERVICIO') || upper.includes('Nº PROD')) {
             if (val) prodServ = val;
           }
-          if (upperKey.includes('CONTRATO')) {
+          if (upper.includes('CONTRATO')) {
             if (val) numContrato = val;
           }
         }
-
-        // Si no se encontró por nombre exacto, cogemos la primera y segunda columna por posición
         if (!prodServ) {
           const keys = Object.keys(rev);
           if (keys.length > 0) prodServ = String(rev[keys[0]] || '').trim();
           if (keys.length > 1 && !numContrato) numContrato = String(rev[keys[1]] || '').trim();
         }
-
         if (prodServ) {
           revisionesMap.set(prodServ, numContrato);
         }
       });
 
-      console.log(`🔍 Claves únicas en revisionesMap: ${revisionesMap.size}`);
-
-      // 2. Mapa de Líneas de Contrato robusto
+      // 2. Mapa de Líneas de Contrato
       const lineasMap = new Map();
       lineasContratoData.forEach((linea) => {
         let prodServ = '';
         let numContrato = '';
-
         for (const k of Object.keys(linea)) {
           const val = String(linea[k] || '').trim();
-          const upperKey = k.toUpperCase();
-          if (upperKey.includes('PRODUCTO') || upperKey.includes('PROD. SERVICIO') || upperKey.includes('Nº PROD')) {
+          const upper = k.toUpperCase();
+          if (upper.includes('PRODUCTO') || upper.includes('PROD. SERVICIO') || upper.includes('Nº PROD')) {
             if (val) prodServ = val;
           }
-          if (upperKey.includes('CONTRATO') && !upperKey.includes('GRUPO')) {
+          if (upper.includes('CONTRATO') && !upper.includes('GRUPO')) {
             if (val) numContrato = val;
           }
         }
-
-        if (!prodServ) {
-          const keys = Object.keys(linea);
-          for (const k of keys) {
-            if (k.toUpperCase().includes('PROD') && linea[k]) {
-              prodServ = String(linea[k]).trim();
-              break;
-            }
-          }
-        }
-
         if (prodServ) {
           lineasMap.set(prodServ, numContrato);
         }
       });
 
-      // 3. FUSIÓN Y FILTRADO
+      // 3. Mapa de Pedidos Registrados para extraer la Delegación
+      const delegacionMap = new Map();
+      pedidosRegData.forEach((reg) => {
+        let numCli = '';
+        let delegacion = '';
+        for (const k of Object.keys(reg)) {
+          const val = String(reg[k] || '').trim();
+          const upper = k.toUpperCase();
+          if (upper.includes('CLIENTE') && !upper.includes('DIRECCIÓN')) {
+            if (val) numCli = val;
+          }
+          if (upper.includes('DELEGACION') || upper.includes('DELEGACIÓN')) {
+            if (val) delegacion = val;
+          }
+        }
+        if (numCli && delegacion) {
+          delegacionMap.set(numCli, delegacion);
+        }
+      });
+
+      // 4. Filtrado y Construcción Final con Delegación
       const resultadoFinal: any[] = [];
       
       prodData.forEach((prod, index) => {
-        // Buscamos el ID principal del producto de servicio (columna 'Nº' o primera columna)
         let prodId = '';
         let serie = '';
         let modelo = '';
         let propietario = '';
+        let numCliProp = '';
         let ubicacion = '';
         let horas = 0;
 
@@ -235,6 +222,8 @@ export function SyncView() {
             modelo = val;
           } else if (upperKey.includes('PROPIETARIO') && upperKey.includes('NOMBRE')) {
             propietario = val;
+          } else if (upperKey.includes('Nº CLIENTE PROPIETARIO')) {
+            numCliProp = val;
           } else if (upperKey.includes('UBICACIÓN') && upperKey.includes('NOMBRE')) {
             ubicacion = val;
           } else if (upperKey.includes('HORAS')) {
@@ -242,7 +231,6 @@ export function SyncView() {
           }
         }
 
-        // Fallback si no encontró 'Nº' explícitamente
         if (!prodId) {
           const keys = Object.keys(prod);
           if (keys.length > 0) prodId = String(prod[keys[0]] || '').trim();
@@ -253,12 +241,15 @@ export function SyncView() {
           const contratoLinea = lineasMap.get(prodId);
           const contratoFinal = contratoLinea || contratoRev;
 
-          // REGLA: Si está en revisionesMap (tiene contrato de revisión anual)
           if (contratoRev !== undefined || contratoLinea !== undefined) {
+            // Buscar delegación por cliente o por defecto
+            let delegacion = delegacionMap.get(numCliProp) || 'Sin Delegación';
+
             resultadoFinal.push({
               'Nº prod. servicio': prodId,
               'Nº Serie': serie || prodId,
               'Modelo': modelo || 'N/A',
+              'Delegación': delegacion,
               'Nº Contrato': contratoFinal || 'Sin Contrato',
               'Nombre Cliente Propietario': propietario || 'N/A',
               'Nombre Cliente Ubicación': ubicacion || 'N/A',
@@ -270,19 +261,12 @@ export function SyncView() {
         }
       });
 
-      console.log(`✅ Equipos con contrato detectados: ${resultadoFinal.length}`);
-
-      if (resultadoFinal.length === 0) {
-        throw new Error("No se ha encontrado ninguna coincidencia entre los productos y las revisiones. Comprueba que el fichero de Revisiones tenga los códigos de producto en su primera columna.");
-      }
-
-      // Guardado en localStorage
       const jsonString = JSON.stringify(resultadoFinal);
       localStorage.setItem('mantenim_planificacion_data', jsonString);
 
       setProcessedData(resultadoFinal);
       setIsError(false);
-      setResultMessage(`¡Éxito! Procesados y guardados ${resultadoFinal.length} equipos con contrato.`);
+      setResultMessage(`¡Éxito! Procesados y guardados ${resultadoFinal.length} equipos con contrato y delegación.`);
     } catch (error: any) {
       setIsError(true);
       console.error(error);
@@ -306,15 +290,15 @@ export function SyncView() {
   return (
     <div className="space-y-6 p-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold tracking-tight">Sincronización Inteligente</h2>
-        <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded font-medium">Cruce Flexible por ID</span>
+        <h2 className="text-2xl font-bold tracking-tight">Sincronización (Con Delegación)</h2>
+        <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded font-medium">Contratos y Delegación</span>
       </div>
       
       <div className="p-6 bg-card border rounded-lg shadow-sm space-y-6">
         <div>
           <h3 className="text-lg font-semibold mb-1">Arrastra tus 5 excels de Business Central aquí</h3>
           <p className="text-sm text-muted-foreground">
-            Se cruzarán los códigos de producto de forma flexible para aislar los contratos de revisiones anuales.
+            Se asignará la delegación correspondiente a cada equipo bajo contrato.
           </p>
         </div>
 
@@ -346,89 +330,4 @@ export function SyncView() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {[
-            { key: 'revisiones', label: '1. Revisiones', file: files.revisiones, setter: (f: File) => setFiles(prev => ({ ...prev, revisiones: f })) },
-            { key: 'productos', label: '2. Productos de Servicio', file: files.productos, setter: (f: File) => setFiles(prev => ({ ...prev, productos: f })) },
-            { key: 'lineasContrato', label: '3. Líneas de Contrato', file: files.lineasContrato, setter: (f: File) => setFiles(prev => ({ ...prev, lineasContrato: f })) },
-            { key: 'pedidos', label: '4. Pedidos de Servicio', file: files.pedidos, setter: (f: File) => setFiles(prev => ({ ...prev, pedidos: f })) },
-            { key: 'pedidosReg', label: '5. Pedidos Registrados', file: files.pedidosReg, setter: (f: File) => setFiles(prev => ({ ...prev, pedidosReg: f })) },
-          ].map((item) => {
-            const inputId = `file-input-${item.key}`;
-            return (
-              <div 
-                key={item.key} 
-                onClick={() => document.getElementById(inputId)?.click()}
-                className={`p-3 border rounded-lg flex items-center justify-between text-sm cursor-pointer transition-all hover:border-primary ${
-                  item.file ? 'bg-emerald-50/50 border-emerald-200 text-emerald-900' : 'bg-muted/30 text-muted-foreground border-dashed'
-                }`}
-              >
-                <input 
-                  id={inputId} 
-                  type="file" 
-                  accept=".xlsx, .xls" 
-                  className="hidden" 
-                  onChange={(e) => {
-                    if (e.target.files?.[0]) {
-                      item.setter(e.target.files[0]);
-                    }
-                  }} 
-                />
-                <div className="flex items-center space-x-2 truncate">
-                  <FileSpreadsheet className={`w-4 h-4 flex-shrink-0 ${item.file ? 'text-emerald-600' : 'text-muted-foreground'}`} />
-                  <div className="truncate">
-                    <p className="font-semibold text-xs">{item.label}</p>
-                    <p className="text-xs truncate opacity-80">{item.file ? item.file.name : 'Haz clic o suelta aquí...'}</p>
-                  </div>
-                </div>
-                {item.file && <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 ml-2" />}
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-4 pt-2 border-t">
-          <button
-            type="button"
-            disabled={loading || !allAssigned}
-            onClick={handleProcessAndSync}
-            className="px-5 py-2.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 font-medium text-sm shadow-sm transition-all"
-          >
-            {loading ? 'Procesando ficheros...' : 'Procesar Planificación Con Cruce Flexible'}
-          </button>
-
-          {processedData.length > 0 && (
-            <button
-              type="button"
-              onClick={handleDownloadExcel}
-              className="px-5 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium text-sm shadow-sm transition-all flex items-center gap-2"
-            >
-              <Download className="w-4 h-4" /> Descargar Excel ({processedData.length} registros)
-            </button>
-          )}
-          
-          <button
-            type="button"
-            onClick={() => {
-              setFiles({ revisiones: null, productos: null, lineasContrato: null, pedidos: null, pedidosReg: null });
-              setProcessedData([]);
-              setResultMessage(null);
-            }}
-            className="px-4 py-2.5 border rounded-lg hover:bg-muted font-medium text-sm ml-auto"
-          >
-            Reiniciar selección
-          </button>
-        </div>
-
-        {resultMessage && (
-          <div className={`p-4 border rounded-lg text-sm font-medium flex items-start space-x-2 ${isError ? 'bg-destructive/10 text-destructive border-destructive/20' : 'bg-emerald-50 text-emerald-800 border-emerald-200'}`}>
-            {isError ? <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" /> : <CheckCircle2 className="w-5 h-5 flex-shrink-0 mt-0.5" />}
-            <span>{resultMessage}</span>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-export default SyncView;
+        <div className="grid grid-cols-1 sm:grid-cols
