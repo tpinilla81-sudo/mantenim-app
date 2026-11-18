@@ -119,16 +119,35 @@ export function SyncView() {
     });
   };
 
+  /**
+   * Parser robusto compatible con fechas europeas (DD/MM/YYYY), formato ISO y números de serie de Excel.
+   */
   const parseExcelDate = (val: any): Date | null => {
     if (!val) return null;
-    if (val instanceof Date) return val;
+    if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
     if (typeof val === 'number') {
       const d = new Date(Math.round((val - (25567 + 2)) * 86400 * 1000));
       return isNaN(d.getTime()) ? null : d;
     }
     const str = String(val).trim();
-    const d = new Date(str);
-    return isNaN(d.getTime()) ? null : d;
+    if (!str || str.toLowerCase() === 'undefined' || str === '0') return null;
+
+    // Detectar formato DD/MM/YYYY o DD-MM-YYYY
+    const parts = str.split(/[\/\-]/);
+    if (parts.length === 3) {
+      if (parts[0].length === 4) {
+        // YYYY-MM-DD
+        const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+        if (!isNaN(d.getTime())) return d;
+      } else {
+        // DD-MM-YYYY o DD/MM/YYYY
+        const d = new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0]));
+        if (!isNaN(d.getTime())) return d;
+      }
+    }
+
+    const standardDate = new Date(str);
+    return isNaN(standardDate.getTime()) ? null : standardDate;
   };
 
   const handleProcessAndSync = async () => {
@@ -152,7 +171,7 @@ export function SyncView() {
         throw new Error("El fichero de Productos de Servicio está vacío.");
       }
 
-      // 1. Mapa de Revisiones
+      // 1. Mapa de Revisiones (con lectura correcta de fecha y revisiones anuales)
       const revisionesMap = new Map<string, { contrato: string; ultimaFecha: Date | null; numRevisionesAnuales: number }>();
       revData.forEach((rev) => {
         let prodServ = '';
@@ -161,16 +180,19 @@ export function SyncView() {
         let revAnuales = 1;
 
         for (const k of Object.keys(rev)) {
-          const val = String(rev[k] || '').trim();
+          const val = rev[k];
+          const valStr = String(val || '').trim();
           const upper = k.toUpperCase().trim();
+
           if (upper.includes('PRODUCTO') || upper.includes('PROD. SERVICIO') || upper.includes('Nº PROD') || upper.includes('CÓDIGO')) {
-            if (val) prodServ = val;
-          } else if ((upper === 'Nº CONTRATO' || upper === 'N. CONTRATO' || upper === 'CONTRATO') && !upper.includes('GRUPO') && val) {
-            numContrato = val;
+            if (valStr) prodServ = valStr;
+          } else if ((upper === 'Nº CONTRATO' || upper === 'N. CONTRATO' || upper === 'CONTRATO') && !upper.includes('GRUPO') && valStr) {
+            numContrato = valStr;
           } else if (upper.includes('FECHA') || upper.includes('ULTIMA') || upper.includes('ÚLTIMA') || upper.includes('SERVICIO')) {
-            fechaUltima = parseExcelDate(rev[k]);
+            const parsed = parseExcelDate(val);
+            if (parsed) fechaUltima = parsed;
           } else if (upper.includes('REVISIONES') || upper.includes('CANTIDAD') || upper.includes('Nº REVISIONES')) {
-            const parsedNum = Number(rev[k]);
+            const parsedNum = Number(val);
             if (!isNaN(parsedNum) && parsedNum > 0) revAnuales = parsedNum;
           }
         }
@@ -180,7 +202,7 @@ export function SyncView() {
         }
       });
 
-      // 2. Mapa de Líneas de Contrato (BUSCANDO ESTRICTAMENTE "Nº Contrato" y bloqueando "Cód. grupo contrato")
+      // 2. Mapa de Líneas de Contrato (Columna C: Nº Contrato, ignorando grupos)
       const lineasMap = new Map<string, { contrato: string; sucursal: string }>();
       lineasContratoData.forEach((linea) => {
         let prodServ = '';
@@ -190,7 +212,6 @@ export function SyncView() {
           const val = String(linea[k] || '').trim();
           const upper = k.toUpperCase().trim();
 
-          // Ignorar tajantemente las columnas de grupo o tipo de contrato que no sean la C
           if (upper.includes('GRUPO') || upper.includes('TIPO')) continue;
 
           if (upper.includes('PRODUCTO') || upper.includes('PROD. SERVICIO') || upper.includes('Nº PROD') || upper.includes('CÓDIGO')) {
@@ -207,7 +228,7 @@ export function SyncView() {
         }
       });
 
-      // 3. Histórico de horas
+      // 3. Histórico de horas para máquinas propias
       const historialProdMap = new Map<string, { fecha: Date; horas: number }[]>();
       pedidosRegData.forEach((reg) => {
         let prodServ = '';
@@ -234,7 +255,7 @@ export function SyncView() {
         }
       });
 
-      // 4. Procesamiento final
+      // 4. Procesamiento final aplicando las reglas correspondientes
       const resultadoFinal: any[] = [];
       
       prodData.forEach((prod, index) => {
@@ -300,8 +321,10 @@ export function SyncView() {
             let fechaProximaStr = 'Pendiente';
 
             if (esValido) {
+              // LLAMADA A REGLA DE CONTRATADOS (Usa la última fecha real leída del Excel)
               fechaProximaStr = calcularProximaRevisionContrato(revInfo?.ultimaFecha || null, revInfo?.numRevisionesAnuales || 1);
             } else if (esPropiaFlag) {
+              // LLAMADA A REGLA DE MÁQUINAS PROPIAS POR HORAS E HITOS EXACTOS
               const historico = historialProdMap.get(prodServId) || [];
               const ultimaRevPropia = historico.length > 0 ? historico[historico.length - 1].fecha : null;
               fechaProximaStr = calcularProximaRevisionPropia(ultimaRevPropia, horasActuales, modelo, historico);
@@ -328,7 +351,7 @@ export function SyncView() {
       setProcessedData(resultadoFinal);
       setHasStoredData(true);
       setIsError(false);
-      setResultMessage(`¡Éxito! Procesados ${resultadoFinal.length} equipos con la columna Nº Contrato correcta.`);
+      setResultMessage(`¡Éxito! Procesados ${resultadoFinal.length} equipos con fechas calculadas correctamente.`);
     } catch (error: any) {
       setIsError(true);
       setResultMessage(`Error al procesar: ${error.message}`);
@@ -361,7 +384,7 @@ export function SyncView() {
         <div>
           <h3 className="text-lg font-semibold mb-1">Carga de Ficheros</h3>
           <p className="text-sm text-muted-foreground">
-            Leyendo estrictamente la columna Nº Contrato (Columna C) e ignorando grupos.
+            Sube los 5 excels de Business Central para actualizar el cálculo de fechas de revisión.
           </p>
         </div>
 
@@ -391,7 +414,7 @@ export function SyncView() {
           {[
             { key: 'revisiones', label: '1. Revisiones', file: files.revisiones, setter: (f: File) => setFiles(p => ({ ...p, revisiones: f })) },
             { key: 'productos', label: '2. Productos de Servicio', file: files.productos, setter: (f: File) => setFiles(p => ({ ...p, productos: f })) },
-            { key: 'lineasContrato', label: '3. Líneas de Contrato', file: files.lineasContrato, setter: (f: File) => setFiles(p => ({ ...p, lineasContrato: f })) },
+            { key: 'lineasContrato', label: '3. Líneas de Contrato', file: files.lineasContrato, setter: (f: File) => setFiles(p => ({ ...p, lineaContrato: f })) },
             { key: 'pedidos', label: '4. Pedidos de Servicio', file: files.pedidos, setter: (f: File) => setFiles(p => ({ ...p, pedidos: f })) },
             { key: 'pedidosReg', label: '5. Pedidos Registrados', file: files.pedidosReg, setter: (f: File) => setFiles(p => ({ ...p, pedidosReg: f })) },
           ].map((item) => {
@@ -417,14 +440,14 @@ export function SyncView() {
             type="button" 
             disabled={loading || !allAssigned} 
             onClick={handleProcessAndSync} 
-            className="px-5 py-2.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 font-medium text-sm shadow-sm transition-all flex items-center gap-2"
+            className="px-5 py-2.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 font-medium text-sm shadow-sm transition-all flex items-center gap-2 cursor-pointer"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             {loading ? 'Procesando...' : 'Procesar y Guardar'}
           </button>
           
           {(processedData.length > 0 || hasStoredData) && (
-            <button type="button" onClick={handleDownloadExcel} className="px-5 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium text-sm flex items-center gap-2">
+            <button type="button" onClick={handleDownloadExcel} className="px-5 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium text-sm flex items-center gap-2 cursor-pointer">
               <Download className="w-4 h-4" /> Descargar Excel Actual
             </button>
           )}
