@@ -41,12 +41,12 @@ export function RevisionesView() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        // Preparado para recibir el campo calculado por la app
-        const enriched = parsed.map((row: any) => ({
-          ...row,
-          'Fecha Próxima Revisión': row['Fecha Próxima Revisión'] || 'Pendiente cálculo'
-        }));
-        setItems(enriched);
+        // FILTRO DE SEGURIDAD VISUAL: Excluimos cualquier registro que tenga "Sin Contrato"
+        const soloContratos = parsed.filter((row: any) => {
+          const c = String(row['Nº Contrato'] || '').trim().toUpperCase();
+          return c !== '' && c !== 'SIN CONTRATO' && c !== 'UNDEFINED' && c !== 'NULL';
+        });
+        setItems(soloContratos);
       } catch (e) {
         console.error('Error cargando datos de planificación', e);
       }
@@ -201,7 +201,7 @@ export function RevisionesView() {
         <div>
           <h2 className="text-2xl font-bold tracking-tight">Planificación / Revisiones</h2>
           <p className="text-sm text-muted-foreground">
-            Listado con la columna de fecha de próxima revisión lista para aplicar las lógicas de cálculo.
+            Listado exclusivo de equipos con contrato y fechas de revisión calculadas.
           </p>
         </div>
 
@@ -247,8 +247,8 @@ export function RevisionesView() {
 
       {items.length === 0 ? (
         <div className="p-12 text-center border rounded-lg bg-card text-muted-foreground">
-          <p className="text-base font-medium mb-1">No hay datos de planificación sincronizados.</p>
-          <p className="text-sm">Ve a <span className="underline font-semibold">Sincronización</span> para procesar los ficheros.</p>
+          <p className="text-base font-medium mb-1">No hay datos de planificación sincronizados o no hay contratos válidos.</p>
+          <p className="text-sm">Ve a <span className="underline font-semibold">Sincronización</span> para procesar los ficheros de nuevo.</p>
         </div>
       ) : (
         <div className="border rounded-lg bg-card overflow-hidden shadow-sm">
@@ -343,11 +343,11 @@ export function RevisionesView() {
                 {displayedItems.length === 0 ? (
                   <tr>
                     <td colSpan={9} className="p-8 text-center text-muted-foreground">
-                      No hay equipos planificados que coincidan con los filtros.
+                      No hay equipos planificados con contrato que coincidan con los filtros.
                     </td>
                   </tr>
                 ) : (
-                  displayedItems.main?.map ? displayedItems.map((row, idx) => (
+                  displayedItems.map((row, idx) => (
                     <tr key={row.idUnico || idx} className="hover:bg-muted/50 transition-colors">
                       <td className="p-2.5 font-mono font-medium">{row['Nº prod. servicio'] || 'N/A'}</td>
                       <td className="p-2.5 font-mono">{row['Nº Serie'] || 'N/A'}</td>
@@ -357,23 +357,7 @@ export function RevisionesView() {
                           {row['Sucursal'] || 'N/A'}
                         </span>
                       </td>
-                      <td className="p-2.5">{row['Nº Contrato']}</td>
-                      <td className="p-2.5 font-medium text-primary">{row['Fecha Próxima Revisión']}</td>
-                      <td className="p-2.5">{row['Nombre Cliente Propietario'] || 'N/A'}</td>
-                      <td className="p-2.5">{row['Nombre Cliente Ubicación'] || 'N/A'}</td>
-                      <td className="p-2.5 font-mono">{row['Nº de horas'] ?? 0}</td>
-                    </tr>
-                  )) : displayedItems.map((row, idx) => (
-                    <tr key={row.idUnico || idx} className="hover:bg-muted/50 transition-colors">
-                      <td className="p-2.5 font-mono font-medium">{row['Nº prod. servicio'] || 'N/A'}</td>
-                      <td className="p-2.5 font-mono">{row['Nº Serie'] || 'N/A'}</td>
-                      <td className="p-2.5">{row['Modelo'] || 'N/A'}</td>
-                      <td className="p-2.5">
-                        <span className="px-2 py-0.5 text-xs rounded-full font-medium bg-emerald-100 text-emerald-800">
-                          {row['Sucursal'] || 'N/A'}
-                        </span>
-                      </td>
-                      <td className="p-2.5">{row['Nº Contrato']}</td>
+                      <td className="p-2.5 font-medium text-emerald-700">{row['Nº Contrato']}</td>
                       <td className="p-2.5 font-medium text-primary">{row['Fecha Próxima Revisión']}</td>
                       <td className="p-2.5">{row['Nombre Cliente Propietario'] || 'N/A'}</td>
                       <td className="p-2.5">{row['Nombre Cliente Ubicación'] || 'N/A'}</td>
