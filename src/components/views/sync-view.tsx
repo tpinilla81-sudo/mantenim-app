@@ -7,7 +7,7 @@ import * as XLSX from 'xlsx';
 interface ColumnFilters {
   serie: string;
   modelo: string;
-  delegacion: string;
+  sucursal: string;
   contrato: string;
   propietario: string;
   ubicacion: string;
@@ -20,7 +20,7 @@ export function RevisionesView() {
   const [colFilters, setColFilters] = useState<ColumnFilters>({
     serie: '',
     modelo: '',
-    delegacion: '',
+    sucursal: '',
     contrato: '',
     propietario: '',
     ubicacion: '',
@@ -46,7 +46,7 @@ export function RevisionesView() {
   const uniqueValues = useMemo(() => {
     const series = new Set<string>();
     const modelos = new Set<string>();
-    const delegaciones = new Set<string>();
+    const sucursales = new Set<string>();
     const contratos = new Set<string>();
     const propietarios = new Set<string>();
     const ubicaciones = new Set<string>();
@@ -54,7 +54,7 @@ export function RevisionesView() {
     items.forEach(row => {
       if (row['Nº Serie']) series.add(String(row['Nº Serie']));
       if (row['Modelo']) modelos.add(String(row['Modelo']));
-      if (row['Delegación']) delegaciones.add(String(row['Delegación']));
+      if (row['Sucursal']) sucursales.add(String(row['Sucursal']));
       if (row['Nº Contrato']) contratos.add(String(row['Nº Contrato']));
       const prop = row['Nombre Cliente Propietario'];
       if (prop) propietarios.add(String(prop));
@@ -64,7 +64,7 @@ export function RevisionesView() {
     return {
       series: Array.from(series).sort(),
       modelos: Array.from(modelos).sort(),
-      delegaciones: Array.from(delegaciones).sort(),
+      sucursales: Array.from(sucursales).sort(),
       contratos: Array.from(contratos).sort(),
       propietarios: Array.from(propietarios).sort(),
       ubicaciones: Array.from(ubicaciones).sort(),
@@ -75,7 +75,7 @@ export function RevisionesView() {
     const qGlobal = globalSearch.toLowerCase().trim();
     const qSerie = colFilters.serie.toLowerCase().trim();
     const qModelo = colFilters.modelo.toLowerCase().trim();
-    const qDelegacion = colFilters.delegacion.toLowerCase().trim();
+    const qSucursal = colFilters.sucursal.toLowerCase().trim();
     const qContrato = colFilters.contrato.toLowerCase().trim();
     const qProp = colFilters.propietario.toLowerCase().trim();
     const qUbica = colFilters.ubicacion.toLowerCase().trim();
@@ -83,7 +83,7 @@ export function RevisionesView() {
     const filtered = items.filter(row => {
       const serie = String(row['Nº Serie'] || row['Nº prod. servicio'] || '');
       const modelo = String(row['Modelo'] || '');
-      const delegacion = String(row['Delegación'] || '');
+      const sucursal = String(row['Sucursal'] || '');
       const contrato = String(row['Nº Contrato'] || '');
       const propietario = String(row['Nombre Cliente Propietario'] || '');
       const ubicacion = String(row['Nombre Cliente Ubicación'] || '');
@@ -92,7 +92,7 @@ export function RevisionesView() {
         const matchGlobal =
           serie.toLowerCase().includes(qGlobal) ||
           modelo.toLowerCase().includes(qGlobal) ||
-          delegacion.toLowerCase().includes(qGlobal) ||
+          sucursal.toLowerCase().includes(qGlobal) ||
           contrato.toLowerCase().includes(qGlobal) ||
           propietario.toLowerCase().includes(qGlobal) ||
           ubicacion.toLowerCase().includes(qGlobal);
@@ -101,7 +101,7 @@ export function RevisionesView() {
 
       if (qSerie && !serie.toLowerCase().includes(qSerie)) return false;
       if (qModelo && !modelo.toLowerCase().includes(qModelo)) return false;
-      if (qDelegacion && !delegacion.toLowerCase().includes(qDelegacion)) return false;
+      if (qSucursal && !sucursal.toLowerCase().includes(qSucursal)) return false;
       if (qContrato && !contrato.toLowerCase().includes(qContrato)) return false;
       if (qProp && !propietario.toLowerCase().includes(qProp)) return false;
       if (qUbica && !ubicacion.toLowerCase().includes(qUbica)) return false;
@@ -152,7 +152,7 @@ export function RevisionesView() {
 
   const resetAllFilters = () => {
     setGlobalSearch('');
-    setColFilters({ serie: '', modelo: '', delegacion: '', contrato: '', propietario: '', ubicacion: '' });
+    setColFilters({ serie: '', modelo: '', sucursal: '', contrato: '', propietario: '', ubicacion: '' });
   };
 
   const hasActiveFilters = globalSearch !== '' || Object.values(colFilters).some(val => val !== '');
@@ -178,7 +178,7 @@ export function RevisionesView() {
         <div>
           <h2 className="text-2xl font-bold tracking-tight">Planificación / Revisiones</h2>
           <p className="text-sm text-muted-foreground">
-            Listado completo de máquinas con contrato y delegación asignada.
+            Listado de equipos con contrato y sucursal/delegación (S01, S02...).
           </p>
         </div>
 
@@ -239,8 +239,8 @@ export function RevisionesView() {
                   <th onClick={() => handleSort('Modelo')} className="p-2.5 cursor-pointer hover:bg-muted/80 select-none min-w-[160px]">
                     <div className="flex items-center">Modelo {renderSortIcon('Modelo')}</div>
                   </th>
-                  <th onClick={() => handleSort('Delegación')} className="p-2.5 cursor-pointer hover:bg-muted/80 select-none min-w-[130px]">
-                    <div className="flex items-center">Delegación {renderSortIcon('Delegación')}</div>
+                  <th onClick={() => handleSort('Sucursal')} className="p-2.5 cursor-pointer hover:bg-muted/80 select-none min-w-[120px]">
+                    <div className="flex items-center">Sucursal {renderSortIcon('Sucursal')}</div>
                   </th>
                   <th onClick={() => handleSort('Nº Contrato')} className="p-2.5 cursor-pointer hover:bg-muted/80 select-none min-w-[140px]">
                     <div className="flex items-center">Nº Contrato {renderSortIcon('Nº Contrato')}</div>
@@ -271,9 +271,9 @@ export function RevisionesView() {
                     </select>
                   </th>
                   <th className="p-1.5 font-normal">
-                    <select value={colFilters.delegacion} onChange={(e) => setColFilters(p => ({ ...p, delegacion: e.target.value }))} className="w-full px-1.5 py-1 border rounded bg-background">
+                    <select value={colFilters.sucursal} onChange={(e) => setColFilters(p => ({ ...p, sucursal: e.target.value }))} className="w-full px-1.5 py-1 border rounded bg-background">
                       <option value="">Todas</option>
-                      {uniqueValues.delegaciones.map((v, i) => <option key={i} value={v}>{v}</option>)}
+                      {uniqueValues.sucursales.map((v, i) => <option key={i} value={v}>{v}</option>)}
                     </select>
                   </th>
                   <th className="p-1.5 font-normal">
@@ -311,8 +311,8 @@ export function RevisionesView() {
                       <td className="p-2.5 font-medium">{row['Nº Serie'] || 'N/A'}</td>
                       <td className="p-2.5">{row['Modelo'] || 'N/A'}</td>
                       <td className="p-2.5">
-                        <span className="px-2 py-0.5 text-xs rounded-full font-medium bg-purple-100 text-purple-800">
-                          {row['Delegación'] || 'N/A'}
+                        <span className="px-2 py-0.5 text-xs rounded-full font-medium bg-emerald-100 text-emerald-800">
+                          {row['Sucursal'] || 'N/A'}
                         </span>
                       </td>
                       <td className="p-2.5">{row['Nº Contrato']}</td>
