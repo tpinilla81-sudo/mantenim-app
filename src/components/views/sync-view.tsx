@@ -29,7 +29,6 @@ export function SyncView() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Comprobar si ya existen datos guardados en el navegador al cargar
   useEffect(() => {
     const saved = localStorage.getItem('mantenim_planificacion_data');
     if (saved) {
@@ -132,6 +131,18 @@ export function SyncView() {
     return isNaN(d.getTime()) ? null : d;
   };
 
+  // Función auxiliar para validar que el valor encontrado sea un número/código de contrato real y no un tipo (como ALQLARGO o M1)
+  const esNumeroContratoValido = (val: string): boolean => {
+    if (!val) return false;
+    const upper = val.toUpperCase();
+    if (upper === 'SIN CONTRATO' || upper === 'UNDEFINED' || upper === 'NULL' || upper === 'N/A' || upper === '0') return false;
+    // Excluir palabras típicas de tipos de contrato o tarifas
+    if (upper === 'ALQLARGO' || upper === 'ALQCORTO' || upper === 'M1' || upper.includes('TARIFA') || upper.includes('TIPO')) {
+      return false;
+    }
+    return true;
+  };
+
   const handleProcessAndSync = async () => {
     if (!files.revisiones || !files.productos || !files.lineasContrato || !files.pedidos || !files.pedidosReg) {
       setIsError(true);
@@ -153,7 +164,7 @@ export function SyncView() {
         throw new Error("El fichero de Productos de Servicio está vacío.");
       }
 
-      // 1. Mapa de Revisiones
+      // 1. Mapa de Revisiones (buscando explícitamente el número de contrato)
       const revisionesMap = new Map<string, { contrato: string; ultimaFecha: Date | null; numRevisionesAnuales: number }>();
       revData.forEach((rev) => {
         let prodServ = '';
@@ -162,19 +173,296 @@ export function SyncView() {
         let revAnuales = 1;
 
         for (const k of Object.keys(rev)) {
-          const val = rev[k];
+          const val = String(rev[k] || '').trim();
           const upper = k.toUpperCase();
           if (upper.includes('PRODUCTO') || upper.includes('PROD. SERVICIO') || upper.includes('Nº PROD') || upper.includes('CÓDIGO')) {
-            if (val) prodServ = String(val).trim();
-          } else if (upper.includes('CONTRATO')) {
-            if (val) numContrato = String(val).trim();
+            if (val) prodServ = val;
+          } else if ((upper.includes('Nº CONTRATO') || upper.includes('CÓDIGO CONTRATO') || upper === 'CONTRATO' || upper.includes('N. CONTRATO')) && esNumeroContratoValido(val)) {
+            numContrato = val;
           } else if (upper.includes('FECHA') || upper.includes('ULTIMA') || upper.includes('ÚLTIMA') || upper.includes('SERVICIO')) {
-            fechaUltima = parseExcelDate(val);
+            fechaUltima = parseExcelDate(rev[k]);
           } else if (upper.includes('REVISIONES') || upper.includes('CANTIDAD') || upper.includes('Nº REVISIONES')) {
-            const parsedNum = Number(val);
+            const parsedNum = Number(rev[k]);
             if (!isNaN(parsedNum) && parsedNum > 0) revAnuales = parsedNum;
           }
         }
 
+        // Si no encontró con el filtro estricto, buscamos cualquier columna contrato que no sea tipo
+        if (!numContrato) {
+          for (const k of Object.keys(rev)) {
+            const val = String(rev[k] || '').trim();
+            if (k.toUpperCase().includes('CONTRATO') && esNumeroContratoValido(val)) {
+              numContrato = val;
+              break;
+            }
+          }
+        }
+
         if (prodServ) {
-          revisionesMap.set(prodServ, { contrato: numContrato, ultimaFecha: fechaUltima, numRevisionesAnuales: rev
+          revisionesMap.set(prodServ, { contrato: numContrato, ultimaFecha: fechaUltima, numRevisionesAnuales: revAnuales });
+        }
+      });
+
+      // 2. Mapa de Líneas de Contrato
+      const lineasMap = new Map<string, { contrato: string; sucursal: string }>();
+      lineasContratoData.forEach((linea) => {
+        let prodServ = '';
+        let numContrato = '';
+        let suc = '';
+        for (const k of Object.keys(linea)) {
+          const val = String(linea[k] || '').trim();
+          const upper = k.toUpperCase();
+          if (upper.includes('PRODUCTO') || upper.includes('PROD. SERVICIO') || upper.includes('Nº PROD') || upper.includes('CÓDIGO')) {
+            if (val) prodServ = val;
+          } else if ((upper.includes('Nº CONTRATO') || upper.includes('CÓDIGO CONTRATO') || upper === 'CONTRATO' || upper.includes('N. CONTRATO')) && !upper.includes('GRUPO') && esNumeroContratoValido(val)) {
+            numContrato = val;
+          } else if (upper.includes('SUCURSAL') || upper.includes('CENTRO') || upper.includes('DELEGACI')) {
+            if (val) suc = val;
+          }
+        }
+
+        if (!numContrato) {
+          for (const k of Object.keys(linea)) {
+            const val = String(linea[k] || '').trim();
+            if (k.toUpperCase().includes('CONTRATO') && !k.toUpperCase().includes('GRUPO') && esNumeroContratoValido(val)) {
+              numContrato = val;
+              break;
+            }
+          }
+        }
+
+        if (prodServ) {
+          lineasMap.set(prodServ, { contrato: numContrato, sucursal: suc });
+        }
+      });
+
+      // 3. Histórico de horas
+      const historialProdMap = new Map<string, { fecha: Date; horas: number }[]>();
+      pedidosRegData.forEach((reg) => {
+        let prodServ = '';
+        let fechaReg: Date | null = null;
+        let horasReg = 0;
+
+        for (const k of Object.keys(reg)) {
+          const val = reg[k];
+          const upper = k.toUpperCase();
+          if (upper.includes('PRODUCTO') || upper.includes('PROD. SERVICIO') || upper.includes('Nº PROD') || upper.includes('CÓDIGO')) {
+            if (val) prodServ = String(val).trim();
+          } else if (upper.includes('FECHA')) {
+            fechaReg = parseExcelDate(val);
+          } else if (upper.includes('HORAS')) {
+            const num = Number(val);
+            if (!isNaN(num)) horasReg = num;
+          }
+        }
+
+        if (prodServ && fechaReg) {
+          const list = historialProdMap.get(prodServ) || [];
+          list.push({ fecha: fechaReg, horas: horasReg });
+          historialProdMap.set(prodServ, list);
+        }
+      });
+
+      // 4. Procesamiento final
+      const resultadoFinal: any[] = [];
+      
+      prodData.forEach((prod, index) => {
+        let prodServId = '';
+        let numSerie = '';
+        let modelo = '';
+        let sucursalProd = '';
+        let propietario = '';
+        let ubicacion = '';
+        let horasActuales = 0;
+        let contratoEnProd = '';
+        let esPropiaFlag = false;
+
+        for (const k of Object.keys(prod)) {
+          const val = String(prod[k] || '').trim();
+          const upperKey = k.trim().toUpperCase();
+          
+          if (upperKey === 'Nº' || upperKey === 'Nº PRODUCTO' || upperKey.includes('Nº PROD') || upperKey.includes('CÓDIGO')) {
+            if (!prodServId) prodServId = val;
+          } else if (upperKey.includes('CONTRATO') && esNumeroContratoValido(val)) {
+            contratoEnProd = val;
+          } else if (upperKey.includes('SERIE') && !upperKey.includes('PRODUCTO')) {
+            numSerie = val;
+          } else if (upperKey.includes('MODELO')) {
+            modelo = val;
+          } else if (upperKey.includes('SUCURSAL') || upperKey.includes('DELEGACI') || upperKey.includes('CENTRO')) {
+            if (val) sucursalProd = val;
+          } else if (upperKey.includes('PROPIETARIO') && upperKey.includes('NOMBRE')) {
+            propietario = val;
+          } else if (upperKey.includes('UBICACIÓN') && upperKey.includes('NOMBRE')) {
+            ubicacion = val;
+          } else if (upperKey.includes('HORAS')) {
+            const num = Number(val);
+            if (!isNaN(num)) horasActuales = num;
+          } else if (upperKey.includes('PROPIA')) {
+            if (val.toLowerCase() === 'true' || val === '1' || val.toLowerCase() === 'sí') esPropiaFlag = true;
+          }
+        }
+
+        if (!prodServId) {
+          const keys = Object.keys(prod);
+          if (keys.length > 0) prodServId = String(prod[keys[0]] || '').trim();
+        }
+
+        if (prodServId) {
+          const revInfo = revisionesMap.get(prodServId);
+          const lineaInfo = lineasMap.get(prodServId);
+          
+          const contratoFinal = contratoEnProd || lineaInfo?.contrato || revInfo?.contrato || '';
+          const contratoStr = String(contratoFinal).trim();
+          
+          const esValido = esNumeroContratoValido(contratoStr);
+
+          if (esValido || esPropiaFlag) {
+            const sucursalFinal = sucursalProd || lineaInfo?.sucursal || 'S01';
+            let fechaProximaStr = 'Pendiente';
+
+            if (esValido) {
+              fechaProximaStr = calcularProximaRevisionContrato(revInfo?.ultimaFecha || null, revInfo?.numRevisionesAnuales || 1);
+            } else if (esPropiaFlag) {
+              const historico = historialProdMap.get(prodServId) || [];
+              const ultimaRevPropia = historico.length > 0 ? historico[historico.length - 1].fecha : null;
+              fechaProximaStr = calcularProximaRevisionPropia(ultimaRevPropia, horasActuales, modelo, historico);
+            }
+
+            resultadoFinal.push({
+              'Nº prod. servicio': prodServId,
+              'Nº Serie': numSerie || 'N/A',
+              'Modelo': modelo || 'N/A',
+              'Sucursal': sucursalFinal,
+              'Nº Contrato': contratoStr,
+              'Fecha Próxima Revisión': fechaProximaStr,
+              'Nombre Cliente Propietario': propietario || 'N/A',
+              'Nombre Cliente Ubicación': ubicacion || 'N/A',
+              'Nº de horas': horasActuales,
+              'Tipo Registro': esValido ? 'Contratado' : 'Propia',
+              idUnico: `${index}_${prodServId}`
+            });
+          }
+        }
+      });
+
+      localStorage.setItem('mantenim_planificacion_data', JSON.stringify(resultadoFinal));
+      setProcessedData(resultadoFinal);
+      setHasStoredData(true);
+      setIsError(false);
+      setResultMessage(`¡Éxito! Procesados ${resultadoFinal.length} equipos con número de contrato válido.`);
+    } catch (error: any) {
+      setIsError(true);
+      setResultMessage(`Error al procesar: ${error.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDownloadExcel = () => {
+    const dataToExport = processedData.length > 0 ? processedData : JSON.parse(localStorage.getItem('mantenim_planificacion_data') || '[]');
+    if (dataToExport.length === 0) return;
+    const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Planificacion_Contratos');
+    XLSX.writeFile(workbook, `Planificacion_Contratos_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
+  const allAssigned = Boolean(files.revisiones && files.productos && files.lineasContrato && files.pedidos && files.pedidosReg);
+
+  return (
+    <div className="space-y-6 p-6">
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-bold tracking-tight">Sincronización y Memoria Persistente</h2>
+        <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded font-medium">
+          {hasStoredData ? '✓ Datos guardados en navegador' : 'Pendiente de sincronizar'}
+        </span>
+      </div>
+      
+      <div className="p-6 bg-card border rounded-lg shadow-sm space-y-6">
+        <div>
+          <h3 className="text-lg font-semibold mb-1">Estado de los Ficheros</h3>
+          <p className="text-sm text-muted-foreground">
+            {hasStoredData 
+              ? 'Ya tienes los datos guardados. Vuelve a procesar si has cambiado los excels.' 
+              : 'Arrastra tus 5 excels para guardarlos permanentemente.'}
+          </p>
+        </div>
+
+        <div
+          onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+          onDragLeave={() => setIsDragging(false)}
+          onDrop={handleDrop}
+          onClick={() => fileInputRef.current?.click()}
+          className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all ${
+            isDragging ? 'border-primary bg-primary/5 scale-[1.01]' : 'border-muted-foreground/30 hover:border-primary/50 bg-muted/20'
+          }`}
+        >
+          <input ref={fileInputRef} type="file" multiple accept=".xlsx, .xls" onChange={handleFileSelect} className="hidden" />
+          <div className="flex flex-col items-center justify-center space-y-3">
+            <div className="p-4 bg-primary/10 rounded-full text-primary">
+              <Upload className="w-8 h-8" />
+            </div>
+            <div>
+              <p className="text-base font-semibold">
+                {hasStoredData ? 'Arrastra nuevos excels aquí para actualizar los datos' : 'Arrastra los 5 excels aquí o haz clic para buscarlos'}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {[
+            { key: 'revisiones', label: '1. Revisiones', file: files.revisiones, setter: (f: File) => setFiles(p => ({ ...p, revisiones: f })) },
+            { key: 'productos', label: '2. Productos de Servicio', file: files.productos, setter: (f: File) => setFiles(p => ({ ...p, productos: f })) },
+            { key: 'lineasContrato', label: '3. Líneas de Contrato', file: files.lineasContrato, setter: (f: File) => setFiles(p => ({ ...p, lineasContrato: f })) },
+            { key: 'pedidos', label: '4. Pedidos de Servicio', file: files.pedidos, setter: (f: File) => setFiles(p => ({ ...p, pedidos: f })) },
+            { key: 'pedidosReg', label: '5. Pedidos Registrados', file: files.pedidosReg, setter: (f: File) => setFiles(p => ({ ...p, pedidosReg: f })) },
+          ].map((item) => {
+            const inputId = `file-input-${item.key}`;
+            return (
+              <div key={item.key} onClick={() => document.getElementById(inputId)?.click()} className={`p-3 border rounded-lg flex items-center justify-between text-sm cursor-pointer transition-all hover:border-primary ${item.file ? 'bg-emerald-50/50 border-emerald-200 text-emerald-900' : 'bg-muted/30 text-muted-foreground border-dashed'}`}>
+                <input id={inputId} type="file" accept=".xlsx, .xls" className="hidden" onChange={(e) => { if (e.target.files?.[0]) item.setter(e.target.files[0]); }} />
+                <div className="flex items-center space-x-2 truncate">
+                  <FileSpreadsheet className={`w-4 h-4 flex-shrink-0 ${item.file ? 'text-emerald-600' : 'text-muted-foreground'}`} />
+                  <div className="truncate">
+                    <p className="font-semibold text-xs">{item.label}</p>
+                    <p className="text-xs truncate opacity-80">{item.file ? item.file.name : (hasStoredData ? 'Guardado en memoria ✓' : 'Haz clic o suelta aquí...')}</p>
+                  </div>
+                </div>
+                {item.file && <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 ml-2" />}
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-4 pt-2 border-t">
+          <button 
+            type="button" 
+            disabled={loading || !allAssigned} 
+            onClick={handleProcessAndSync} 
+            className="px-5 py-2.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 font-medium text-sm shadow-sm transition-all flex items-center gap-2"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            {loading ? 'Procesando...' : 'Procesar y Guardar Permanentemente'}
+          </button>
+          
+          {(processedData.length > 0 || hasStoredData) && (
+            <button type="button" onClick={handleDownloadExcel} className="px-5 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium text-sm flex items-center gap-2">
+              <Download className="w-4 h-4" /> Descargar Excel Actual
+            </button>
+          )}
+        </div>
+
+        {resultMessage && (
+          <div className={`p-4 border rounded-lg text-sm font-medium flex items-start space-x-2 ${isError ? 'bg-destructive/10 text-destructive' : 'bg-emerald-50 text-emerald-800'}`}>
+            {isError ? <AlertCircle className="w-5 h-5 flex-shrink-0" /> : <CheckCircle2 className="w-5 h-5 flex-shrink-0" />}
+            <span>{resultMessage}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default SyncView;
