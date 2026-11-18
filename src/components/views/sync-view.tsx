@@ -1,343 +1,258 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Search, ArrowUpDown, ChevronUp, ChevronDown, FilterX, Download } from 'lucide-react';
+import React, { useState, useRef } from 'react';
 import * as XLSX from 'xlsx';
+import { Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Download } from 'lucide-react';
 
-interface ColumnFilters {
-  serie: string;
-  modelo: string;
-  sucursal: string;
-  contrato: string;
-  propietario: string;
-  ubicacion: string;
-}
+export function SyncView() {
+  const [loading, setLoading] = useState(false);
+  const [resultMessage, setResultMessage] = useState<string | null>(null);
+  const [isError, setIsError] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [processedData, setProcessedData] = useState<any[]>([]);
 
-export function RevisionesView() {
-  const [items, setItems] = useState<any[]>([]);
-  const [globalSearch, setGlobalSearch] = useState('');
-  
-  const [colFilters, setColFilters] = useState<ColumnFilters>({
-    serie: '',
-    modelo: '',
-    sucursal: '',
-    contrato: '',
-    propietario: '',
-    ubicacion: '',
+  const [files, setFiles] = useState<{
+    revisiones: File | null;
+    productos: File | null;
+    lineasContrato: File | null;
+    pedidos: File | null;
+    pedidosReg: File | null;
+  }>({
+    revisiones: null,
+    productos: null,
+    lineasContrato: null,
+    pedidos: null,
+    pedidosReg: null,
   });
 
-  const [sortField, setSortField] = useState<string>('Nº Serie');
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [visibleCount, setVisibleCount] = useState(300);
-  const tableContainerRef = useRef<HTMLDivElement>(null);
+  const classifyFiles = (fileList: FileList | File[]) => {
+    const newFiles = { ...files };
 
-  useEffect(() => {
-    const saved = localStorage.getItem('mantenim_planificacion_data');
-    if (saved) {
-      try {
-        setItems(JSON.parse(saved));
-      } catch (e) {
-        console.error('Error cargando datos de planificación', e);
+    Array.from(fileList).forEach(file => {
+      const name = file.name.toLowerCase();
+      
+      if (name.includes('revision') || name.includes('rev') || name.includes('ppi')) {
+        newFiles.revisiones = file;
+      } else if (name.includes('producto') || name.includes('prod')) {
+        newFiles.productos = file;
+      } else if (name.includes('contrato') || name.includes('líneas') || name.includes('lineas') || name.includes('line')) {
+        newFiles.lineasContrato = file;
+      } else if (name.includes('registrado') || name.includes('reg') || name.includes('posted')) {
+        newFiles.pedidosReg = file;
+      } else if (name.includes('pedido') || name.includes('ped') || name.includes('order')) {
+        if (!newFiles.pedidos) {
+          newFiles.pedidos = file;
+        } else if (!newFiles.pedidosReg) {
+          newFiles.pedidosReg = file;
+        }
       }
-    }
-  }, []);
-
-  const uniqueValues = useMemo(() => {
-    const series = new Set<string>();
-    const modelos = new Set<string>();
-    const sucursales = new Set<string>();
-    const contratos = new Set<string>();
-    const propietarios = new Set<string>();
-    const ubicaciones = new Set<string>();
-
-    items.forEach(row => {
-      if (row['Nº Serie']) series.add(String(row['Nº Serie']));
-      if (row['Modelo']) modelos.add(String(row['Modelo']));
-      if (row['Sucursal']) sucursales.add(String(row['Sucursal']));
-      if (row['Nº Contrato']) contratos.add(String(row['Nº Contrato']));
-      const prop = row['Nombre Cliente Propietario'];
-      if (prop) propietarios.add(String(prop));
-      if (row['Nombre Cliente Ubicación']) ubicaciones.add(String(row['Nombre Cliente Ubicación']));
     });
 
-    return {
-      series: Array.from(series).sort(),
-      modelos: Array.from(modelos).sort(),
-      sucursales: Array.from(sucursales).sort(),
-      contratos: Array.from(contratos).sort(),
-      propietarios: Array.from(propietarios).sort(),
-      ubicaciones: Array.from(ubicaciones).sort(),
-    };
-  }, [items]);
+    const unassignedFiles = Array.from(fileList).filter(f => 
+      !Object.values(newFiles).includes(f)
+    );
 
-  const filteredAndSortedItems = useMemo(() => {
-    const qGlobal = globalSearch.toLowerCase().trim();
-    const qSerie = colFilters.serie.toLowerCase().trim();
-    const qModelo = colFilters.modelo.toLowerCase().trim();
-    const qSucursal = colFilters.sucursal.toLowerCase().trim();
-    const qContrato = colFilters.contrato.toLowerCase().trim();
-    const qProp = colFilters.propietario.toLowerCase().trim();
-    const qUbica = colFilters.ubicacion.toLowerCase().trim();
+    if (unassignedFiles.length > 0) {
+      if (!newFiles.revisiones && unassignedFiles.length > 0) newFiles.revisiones = unassignedFiles.shift() || null;
+      if (!newFiles.productos && unassignedFiles.length > 0) newFiles.productos = unassignedFiles.shift() || null;
+      if (!newFiles.lineasContrato && unassignedFiles.length > 0) newFiles.lineasContrato = unassignedFiles.shift() || null;
+      if (!newFiles.pedidos && unassignedFiles.length > 0) newFiles.pedidos = unassignedFiles.shift() || null;
+      if (!newFiles.pedidosReg && unassignedFiles.length > 0) newFiles.pedidosReg = unassignedFiles.shift() || null;
+    }
 
-    const filtered = items.filter(row => {
-      const serie = String(row['Nº Serie'] || row['Nº prod. servicio'] || '');
-      const modelo = String(row['Modelo'] || '');
-      const sucursal = String(row['Sucursal'] || '');
-      const contrato = String(row['Nº Contrato'] || '');
-      const propietario = String(row['Nombre Cliente Propietario'] || '');
-      const ubicacion = String(row['Nombre Cliente Ubicación'] || '');
+    setFiles(newFiles);
+    setResultMessage(null);
+  };
 
-      if (qGlobal) {
-        const matchGlobal =
-          serie.toLowerCase().includes(qGlobal) ||
-          modelo.toLowerCase().includes(qGlobal) ||
-          sucursal.toLowerCase().includes(qGlobal) ||
-          contrato.toLowerCase().includes(qGlobal) ||
-          propietario.toLowerCase().includes(qGlobal) ||
-          ubicacion.toLowerCase().includes(qGlobal);
-        if (!matchGlobal) return false;
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      classifyFiles(e.dataTransfer.files);
+    }
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      classifyFiles(e.target.files);
+    }
+  };
+
+  const readFileAsJSON = (file: File): Promise<any[]> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const buffer = e.target?.result;
+          const workbook = XLSX.read(buffer, { type: 'array' });
+          
+          let sheetName = workbook.SheetNames[0];
+          let sheet = workbook.Sheets[sheetName];
+          let rawData = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[];
+
+          let headerRowIndex = 0;
+          for (let i = 0; i < Math.min(rawData.length, 15); i++) {
+            const rowStr = JSON.stringify(rawData[i]).toLowerCase();
+            if (rowStr.includes('nº') || rowStr.includes('prod') || rowStr.includes('contrato') || rowStr.includes('servicio') || rowStr.includes('serie')) {
+              headerRowIndex = i;
+              break;
+            }
+          }
+
+          const data = XLSX.utils.sheet_to_json(sheet, { range: headerRowIndex }) as any[];
+          resolve(data);
+        } catch (error) {
+          reject(error);
+        }
+      };
+      reader.onerror = (error) => reject(error);
+      reader.readAsArrayBuffer(file);
+    });
+  };
+
+  const handleProcessAndSync = async () => {
+    if (!files.revisiones || !files.productos || !files.lineasContrato || !files.pedidos || !files.pedidosReg) {
+      setIsError(true);
+      setResultMessage('Faltan ficheros por asignar. Comprueba que los 5 huecos estén ocupados.');
+      return;
+    }
+
+    setLoading(true);
+    setResultMessage(null);
+    setIsError(false);
+
+    try {
+      const revData = await readFileAsJSON(files.revisiones);
+      const prodData = await readFileAsJSON(files.productos);
+      const lineasContratoData = await readFileAsJSON(files.lineasContrato);
+
+      if (prodData.length === 0) {
+        throw new Error("El fichero de Productos de Servicio está vacío.");
       }
 
-      if (qSerie && !serie.toLowerCase().includes(qSerie)) return false;
-      if (qModelo && !modelo.toLowerCase().includes(qModelo)) return false;
-      if (qSucursal && !sucursal.toLowerCase().includes(qSucursal)) return false;
-      if (qContrato && !contrato.toLowerCase().includes(qContrato)) return false;
-      if (qProp && !propietario.toLowerCase().includes(qProp)) return false;
-      if (qUbica && !ubicacion.toLowerCase().includes(qUbica)) return false;
+      // 1. Mapa de Revisiones
+      const revisionesMap = new Map();
+      revData.forEach((rev) => {
+        let prodServ = '';
+        let numContrato = '';
+        for (const k of Object.keys(rev)) {
+          const val = String(rev[k] || '').trim();
+          const upper = k.toUpperCase();
+          if (upper.includes('PRODUCTO') || upper.includes('PROD. SERVICIO') || upper.includes('Nº PROD')) {
+            if (val) prodServ = val;
+          }
+          if (upper.includes('CONTRATO')) {
+            if (val) numContrato = val;
+          }
+        }
+        if (!prodServ) {
+          const keys = Object.keys(rev);
+          if (keys.length > 0) prodServ = String(rev[keys[0]] || '').trim();
+          if (keys.length > 1 && !numContrato) numContrato = String(rev[keys[1]] || '').trim();
+        }
+        if (prodServ) {
+          revisionesMap.set(prodServ, numContrato);
+        }
+      });
 
-      return true;
-    });
+      // 2. Mapa de Líneas de Contrato
+      const lineasMap = new Map();
+      lineasContratoData.forEach((linea) => {
+        let prodServ = '';
+        let numContrato = '';
+        for (const k of Object.keys(linea)) {
+          const val = String(linea[k] || '').trim();
+          const upper = k.toUpperCase();
+          if (upper.includes('PRODUCTO') || upper.includes('PROD. SERVICIO') || upper.includes('Nº PROD')) {
+            if (val) prodServ = val;
+          }
+          if (upper.includes('CONTRATO') && !upper.includes('GRUPO')) {
+            if (val) numContrato = val;
+          }
+        }
+        if (prodServ) {
+          lineasMap.set(prodServ, numContrato);
+        }
+      });
 
-    return filtered.sort((a, b) => {
-      let valA = a[sortField] ?? '';
-      let valB = b[sortField] ?? '';
+      // 3. Filtrado exclusivo de máquinas con contrato y extracción de sucursal
+      const resultadoFinal: any[] = [];
+      
+      prodData.forEach((prod, index) => {
+        let prodId = '';
+        let serie = '';
+        let modelo = '';
+        let sucursal = '';
+        let propietario = '';
+        let ubicacion = '';
+        let horas = 0;
 
-      if (sortField === 'Nº de horas') {
-        valA = Number(valA) || 0;
-        valB = Number(valB) || 0;
-      } else {
-        valA = String(valA).toLowerCase();
-        valB = String(valB).toLowerCase();
-      }
+        for (const k of Object.keys(prod)) {
+          const val = String(prod[k] || '').trim();
+          const upperKey = k.trim().toUpperCase();
+          
+          if (upperKey === 'Nº' || upperKey === 'Nº PRODUCTO' || upperKey.includes('Nº PROD')) {
+            if (!prodId) prodId = val;
+          } else if (upperKey.includes('SERIE')) {
+            serie = val;
+          } else if (upperKey.includes('MODELO')) {
+            modelo = val;
+          } else if (upperKey.includes('SUCURSAL')) {
+            sucursal = val;
+          } else if (upperKey.includes('PROPIETARIO') && upperKey.includes('NOMBRE')) {
+            propietario = val;
+          } else if (upperKey.includes('UBICACIÓN') && upperKey.includes('NOMBRE')) {
+            ubicacion = val;
+          } else if (upperKey.includes('HORAS')) {
+            horas = Number(val) || 0;
+          }
+        }
 
-      if (valA < valB) return sortDirection === 'asc' ? -1 : 1;
-      if (valA > valB) return sortDirection === 'asc' ? 1 : -1;
-      return 0;
-    });
-  }, [items, globalSearch, colFilters, sortField, sortDirection]);
+        if (!prodId) {
+          const keys = Object.keys(prod);
+          if (keys.length > 0) prodId = String(prod[keys[0]] || '').trim();
+        }
 
-  useEffect(() => {
-    setVisibleCount(300);
-    if (tableContainerRef.current) {
-      tableContainerRef.current.scrollTop = 0;
+        if (prodId) {
+          const contratoRev = revisionesMap.get(prodId);
+          const contratoLinea = lineasMap.get(prodId);
+          const contratoFinal = contratoLinea || contratoRev;
+
+          // REGLA ESTRICTA: Solo los que tienen contrato en revisiones
+          if (contratoRev !== undefined || contratoLinea !== undefined) {
+            resultadoFinal.push({
+              'Nº prod. servicio': prodId,
+              'Nº Serie': serie || prodId,
+              'Modelo': modelo || 'N/A',
+              'Sucursal': sucursal || 'S01',
+              'Nº Contrato': contratoFinal || 'Sin Contrato',
+              'Nombre Cliente Propietario': propietario || 'N/A',
+              'Nombre Cliente Ubicación': ubicacion || 'N/A',
+              'Nº de horas': horas,
+              'Tipo Registro': 'Contratado',
+              idUnico: `${index}_${prodId}`
+            });
+          }
+        }
+      });
+
+      const jsonString = JSON.stringify(resultadoFinal);
+      localStorage.setItem('mantenim_planificacion_data', jsonString);
+
+      setProcessedData(resultadoFinal);
+      setIsError(false);
+      setResultMessage(`¡Éxito! Procesados y guardados ${resultadoFinal.length} equipos con contrato.`);
+    } catch (error: any) {
+      setIsError(true);
+      setResultMessage(`Error al procesar los ficheros: ${error.message || 'Formato no válido'}`);
+    } finally {
+      setLoading(false);
     }
-  }, [globalSearch, colFilters, sortField, sortDirection]);
-
-  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
-    if (scrollHeight - scrollTop <= clientHeight + 400) {
-      setVisibleCount(prev => Math.min(prev + 300, filteredAndSortedItems.length));
-    }
   };
 
-  const handleSort = (field: string) => {
-    if (sortField === field) {
-      setSortDirection(prev => (prev === 'asc' ? 'desc' : 'asc'));
-    } else {
-      setSortField(field);
-      setSortDirection('asc');
-    }
-  };
+  const handleDownloadExcel = () => {
+    if (processedData.length === 0) return;
 
-  const resetAllFilters = () => {
-    setGlobalSearch('');
-    setColFilters({ serie: '', modelo: '', sucursal: '', contrato: '', propietario: '', ubicacion: '' });
-  };
-
-  const hasActiveFilters = globalSearch !== '' || Object.values(colFilters).some(val => val !== '');
-
-  const handleExportFiltered = () => {
-    if (filteredAndSortedItems.length === 0) return;
-    const worksheet = XLSX.utils.json_to_sheet(filteredAndSortedItems);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Planificacion_Revisiones');
-    XLSX.writeFile(workbook, `Planificacion_Revisiones_${new Date().toISOString().slice(0, 10)}.xlsx`);
-  };
-
-  const renderSortIcon = (field: string) => {
-    if (sortField !== field) return <ArrowUpDown className="w-3.5 h-3.5 ml-1 text-muted-foreground/50 shrink-0" />;
-    return sortDirection === 'asc' ? <ChevronUp className="w-3.5 h-3.5 ml-1 text-primary shrink-0" /> : <ChevronDown className="w-3.5 h-3.5 ml-1 text-primary shrink-0" />;
-  };
-
-  const displayedItems = filteredAndSortedItems.slice(0, visibleCount);
-
-  return (
-    <div className="p-6 space-y-4">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold tracking-tight">Planificación / Revisiones</h2>
-          <p className="text-sm text-muted-foreground">
-            Listado de equipos con contrato y sucursal/delegación (S01, S02...).
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="text-sm font-medium bg-muted px-3 py-1.5 rounded border">
-            Mostrando <span className="font-bold text-primary">{filteredAndSortedItems.length}</span> de <span className="font-bold">{items.length}</span> equipos
-          </div>
-
-          {filteredAndSortedItems.length > 0 && (
-            <button
-              onClick={handleExportFiltered}
-              className="px-3 py-1.5 bg-emerald-600 text-white rounded text-xs font-medium hover:bg-emerald-700 flex items-center gap-1.5 shadow-sm"
-            >
-              <Download className="w-3.5 h-3.5" /> Exportar vista ({filteredAndSortedItems.length})
-            </button>
-          )}
-        </div>
-      </div>
-
-      {items.length > 0 && (
-        <div className="flex flex-col sm:flex-row gap-3 bg-card p-3 border rounded-lg shadow-sm items-center">
-          <div className="relative flex-1 w-full">
-            <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-            <input
-              type="text"
-              placeholder="Búsqueda rápida global..."
-              value={globalSearch}
-              onChange={(e) => setGlobalSearch(e.target.value)}
-              className="w-full pl-9 pr-4 py-1.5 text-sm border rounded bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
-            />
-          </div>
-
-          {hasActiveFilters && (
-            <button
-              onClick={resetAllFilters}
-              className="px-3 py-1.5 text-xs font-medium text-destructive bg-destructive/10 hover:bg-destructive/20 border border-destructive/20 rounded flex items-center gap-1.5 shrink-0"
-            >
-              <FilterX className="w-3.5 h-3.5" /> Limpiar filtros
-            </button>
-          )}
-        </div>
-      )}
-
-      {items.length === 0 ? (
-        <div className="p-12 text-center border rounded-lg bg-card text-muted-foreground">
-          <p className="text-base font-medium mb-1">No hay datos de planificación sincronizados.</p>
-          <p className="text-sm">Ve a <span className="underline font-semibold">Sincronización</span> para procesar los ficheros.</p>
-        </div>
-      ) : (
-        <div className="border rounded-lg bg-card overflow-hidden shadow-sm">
-          <div ref={tableContainerRef} onScroll={handleScroll} className="overflow-auto max-h-[72vh] relative">
-            <table className="w-full text-left text-sm border-collapse">
-              <thead className="bg-muted sticky top-0 z-10 shadow-sm">
-                <tr className="border-b text-muted-foreground font-semibold">
-                  <th onClick={() => handleSort('Nº Serie')} className="p-2.5 cursor-pointer hover:bg-muted/80 select-none min-w-[140px]">
-                    <div className="flex items-center">Nº Serie {renderSortIcon('Nº Serie')}</div>
-                  </th>
-                  <th onClick={() => handleSort('Modelo')} className="p-2.5 cursor-pointer hover:bg-muted/80 select-none min-w-[160px]">
-                    <div className="flex items-center">Modelo {renderSortIcon('Modelo')}</div>
-                  </th>
-                  <th onClick={() => handleSort('Sucursal')} className="p-2.5 cursor-pointer hover:bg-muted/80 select-none min-w-[120px]">
-                    <div className="flex items-center">Sucursal {renderSortIcon('Sucursal')}</div>
-                  </th>
-                  <th onClick={() => handleSort('Nº Contrato')} className="p-2.5 cursor-pointer hover:bg-muted/80 select-none min-w-[140px]">
-                    <div className="flex items-center">Nº Contrato {renderSortIcon('Nº Contrato')}</div>
-                  </th>
-                  <th onClick={() => handleSort('Nombre Cliente Propietario')} className="p-2.5 cursor-pointer hover:bg-muted/80 select-none min-w-[210px]">
-                    <div className="flex items-center">Cliente Propietario {renderSortIcon('Nombre Cliente Propietario')}</div>
-                  </th>
-                  <th onClick={() => handleSort('Nombre Cliente Ubicación')} className="p-2.5 cursor-pointer hover:bg-muted/80 select-none min-w-[210px]">
-                    <div className="flex items-center">Ubicación {renderSortIcon('Nombre Cliente Ubicación')}</div>
-                  </th>
-                  <th onClick={() => handleSort('Nº de horas')} className="p-2.5 cursor-pointer hover:bg-muted/80 select-none min-w-[100px]">
-                    <div className="flex items-center">Horas {renderSortIcon('Nº de horas')}</div>
-                  </th>
-                </tr>
-
-                {/* FILTROS TIPO EXCEL */}
-                <tr className="bg-muted/95 border-b text-xs">
-                  <th className="p-1.5 font-normal">
-                    <select value={colFilters.serie} onChange={(e) => setColFilters(p => ({ ...p, serie: e.target.value }))} className="w-full px-1.5 py-1 border rounded bg-background">
-                      <option value="">Todas</option>
-                      {uniqueValues.series.map((v, i) => <option key={i} value={v}>{v}</option>)}
-                    </select>
-                  </th>
-                  <th className="p-1.5 font-normal">
-                    <select value={colFilters.modelo} onChange={(e) => setColFilters(p => ({ ...p, modelo: e.target.value }))} className="w-full px-1.5 py-1 border rounded bg-background">
-                      <option value="">Todos</option>
-                      {uniqueValues.modelos.map((v, i) => <option key={i} value={v}>{v}</option>)}
-                    </select>
-                  </th>
-                  <th className="p-1.5 font-normal">
-                    <select value={colFilters.sucursal} onChange={(e) => setColFilters(p => ({ ...p, sucursal: e.target.value }))} className="w-full px-1.5 py-1 border rounded bg-background">
-                      <option value="">Todas</option>
-                      {uniqueValues.sucursales.map((v, i) => <option key={i} value={v}>{v}</option>)}
-                    </select>
-                  </th>
-                  <th className="p-1.5 font-normal">
-                    <select value={colFilters.contrato} onChange={(e) => setColFilters(p => ({ ...p, contrato: e.target.value }))} className="w-full px-1.5 py-1 border rounded bg-background">
-                      <option value="">Todos</option>
-                      {uniqueValues.contratos.map((v, i) => <option key={i} value={v}>{v}</option>)}
-                    </select>
-                  </th>
-                  <th className="p-1.5 font-normal">
-                    <select value={colFilters.propietario} onChange={(e) => setColFilters(p => ({ ...p, propietario: e.target.value }))} className="w-full px-1.5 py-1 border rounded bg-background">
-                      <option value="">Todos</option>
-                      {uniqueValues.propietarios.map((v, i) => <option key={i} value={v}>{v}</option>)}
-                    </select>
-                  </th>
-                  <th className="p-1.5 font-normal">
-                    <select value={colFilters.ubicacion} onChange={(e) => setColFilters(p => ({ ...p, ubicacion: e.target.value }))} className="w-full px-1.5 py-1 border rounded bg-background">
-                      <option value="">Todas</option>
-                      {uniqueValues.ubicaciones.map((v, i) => <option key={i} value={v}>{v}</option>)}
-                    </select>
-                  </th>
-                  <th className="p-1.5 font-normal"></th>
-                </tr>
-              </thead>
-
-              <tbody className="divide-y">
-                {displayedItems.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="p-8 text-center text-muted-foreground">
-                      No hay equipos planificados que coincidan con los filtros.
-                    </td>
-                  </tr>
-                ) : (
-                  displayedItems.map((row, idx) => (
-                    <tr key={row.idUnico || idx} className="hover:bg-muted/50 transition-colors">
-                      <td className="p-2.5 font-medium">{row['Nº Serie'] || 'N/A'}</td>
-                      <td className="p-2.5">{row['Modelo'] || 'N/A'}</td>
-                      <td className="p-2.5">
-                        <span className="px-2 py-0.5 text-xs rounded-full font-medium bg-emerald-100 text-emerald-800">
-                          {row['Sucursal'] || 'N/A'}
-                        </span>
-                      </td>
-                      <td className="p-2.5">{row['Nº Contrato']}</td>
-                      <td className="p-2.5">{row['Nombre Cliente Propietario'] || 'N/A'}</td>
-                      <td className="p-2.5">{row['Nombre Cliente Ubicación'] || 'N/A'}</td>
-                      <td className="p-2.5 font-mono">{row['Nº de horas'] ?? 0}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="px-4 py-2 border-t bg-muted/30 text-xs text-muted-foreground flex justify-between items-center">
-            <span>Mostrando {displayedItems.length} de {filteredAndSortedItems.length} registros filtrados.</span>
-            {visibleCount < filteredAndSortedItems.length && (
-              <button onClick={() => setVisibleCount(filteredAndSortedItems.length)} className="text-primary hover:underline font-medium">
-                Cargar todos ({filteredAndSortedItems.length})
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-export default RevisionesView;
+    const worksheet
