@@ -30,6 +30,9 @@ export const STORAGE_CONTRATOS_KEY = 'mantenim_equipos_contrato';
 export const STORAGE_PLANIFICACION_KEY = 'mantenim_planificacion_data';
 export const SYNC_UPDATED_EVENT = 'mantenim-sync-updated';
 
+// Columna L en Excel -> índice 11 (A=0, B=1, ..., L=11)
+const COLUMNA_HORAS_PRODUCTOS_IDX = 11;
+
 export function SyncView() {
   const [loading, setLoading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -95,6 +98,86 @@ export function SyncView() {
     }
   };
 
+  const detectarFilaCabecera = (matrix: any[][]): number => {
+    for (let i = 0; i < Math.min(matrix.length, 20); i++) {
+      const filaStr = JSON.stringify(matrix[i] || []).toLowerCase();
+      if (
+        filaStr.includes('prod') ||
+        filaStr.includes('contrato') ||
+        filaStr.includes('serie') ||
+        filaStr.includes('modelo') ||
+        filaStr.includes('hora') ||
+        filaStr.includes('nº') ||
+        filaStr.includes('no.')
+      ) {
+        return i;
+      }
+    }
+    return 0;
+  };
+
+  const convertirNumeroHoras = (val: any): number => {
+    if (typeof val === 'number') return isNaN(val) ? 0 : val;
+    if (val === undefined || val === null) return 0;
+    const raw = String(val).trim();
+    if (!raw) return 0;
+
+    let cleaned = raw.replace(/\s+/g, '');
+    if (cleaned.includes(',') && cleaned.includes('.')) {
+      cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+    } else if (cleaned.includes(',')) {
+      cleaned = cleaned.replace(',', '.');
+    } else if (/^\d{1,3}(\.\d{3})+$/.test(cleaned)) {
+      cleaned = cleaned.replace(/\./g, '');
+    }
+
+    const num = Number(cleaned);
+    return isNaN(num) ? 0 : num;
+  };
+
+  const leerProductosConColumnaL = (
+    file: File
+  ): Promise<{ rows: Record<string, any>[]; horasPorFila: number[] }> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const data = e.target?.result;
+          const workbook = XLSX.read(data, { type: 'array' });
+          const sheet = workbook.Sheets[workbook.SheetNames[0]];
+          const matrix = XLSX.utils.sheet_to_json(sheet, {
+            header: 1,
+            defval: '',
+          }) as any[][];
+
+          const headerIndex = detectarFilaCabecera(matrix);
+
+          const jsonRows = XLSX.utils.sheet_to_json(sheet, {
+            range: headerIndex,
+            defval: '',
+          }) as Record<string, any>[];
+
+          // Extraer directamente la columna L (índice 11) de cada fila de datos
+          const dataRows = matrix.slice(headerIndex + 1);
+          const horasPorFila = jsonRows.map((_, idx) => {
+            const filaMatriz = dataRows[idx];
+            const celdaColL =
+              Array.isArray(filaMatriz) && filaMatriz.length > COLUMNA_HORAS_PRODUCTOS_IDX
+                ? filaMatriz[COLUMNA_HORAS_PRODUCTOS_IDX]
+                : 0;
+            return convertirNumeroHoras(celdaColL);
+          });
+
+          resolve({ rows: jsonRows, horasPorFila });
+        } catch (err) {
+          reject(err);
+        }
+      };
+      reader.onerror = (err) => reject(err);
+      reader.readAsArrayBuffer(file);
+    });
+  };
+
   const leerExcel = (file: File): Promise<Record<string, any>[]> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -103,24 +186,12 @@ export function SyncView() {
           const data = e.target?.result;
           const workbook = XLSX.read(data, { type: 'array' });
           const sheet = workbook.Sheets[workbook.SheetNames[0]];
-          const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][];
+          const matrix = XLSX.utils.sheet_to_json(sheet, {
+            header: 1,
+            defval: '',
+          }) as any[][];
 
-          let headerIndex = 0;
-          for (let i = 0; i < Math.min(matrix.length, 20); i++) {
-            const filaStr = JSON.stringify(matrix[i] || []).toLowerCase();
-            if (
-              filaStr.includes('prod') ||
-              filaStr.includes('contrato') ||
-              filaStr.includes('serie') ||
-              filaStr.includes('modelo') ||
-              filaStr.includes('hora') ||
-              filaStr.includes('nº') ||
-              filaStr.includes('no.')
-            ) {
-              headerIndex = i;
-              break;
-            }
-          }
+          const headerIndex = detectarFilaCabecera(matrix);
 
           const rows = XLSX.utils.sheet_to_json(sheet, {
             range: headerIndex,
@@ -171,67 +242,6 @@ export function SyncView() {
     return '';
   };
 
-  const convertirNumeroHoras = (val: any): number => {
-    if (typeof val === 'number') return isNaN(val) ? 0 : val;
-    if (val === undefined || val === null) return 0;
-    const raw = String(val).trim();
-    if (!raw) return 0;
-
-    let cleaned = raw.replace(/\s+/g, '');
-    if (cleaned.includes(',') && cleaned.includes('.')) {
-      cleaned = cleaned.replace(/\./g, '').replace(',', '.');
-    } else if (cleaned.includes(',')) {
-      cleaned = cleaned.replace(',', '.');
-    } else if (/^\d{1,3}(\.\d{3})+$/.test(cleaned)) {
-      cleaned = cleaned.replace(/\./g, '');
-    }
-
-    const num = Number(cleaned);
-    return isNaN(num) ? 0 : num;
-  };
-
-  const parseHorasProducto = (row: Record<string, any>): number => {
-    const directo = buscarColumna(
-      row,
-      [
-        'Nº de horas',
-        'Nº horas',
-        'N.º de horas',
-        'N.º horas',
-        'No. de horas',
-        'No. horas',
-        'Horas actuales',
-        'Horas servicio',
-        'Horas máquina',
-        'Horas maquina',
-        'Cuentahoras',
-        'Contador',
-        'Lectura',
-        'Horas',
-      ],
-      ['CONTRATO', 'TARIFA', 'PRECIO', 'IMPORTE', 'COSTE', 'FACTUR']
-    );
-
-    if (directo !== '') {
-      return convertirNumeroHoras(directo);
-    }
-
-    // Fallback: si alguna cabecera menciona "HORA" sin ser importe/tarifa
-    const keys = Object.keys(row);
-    const horaKey = keys.find((k) => {
-      const up = k.trim().toUpperCase();
-      return (
-        up.includes('HORA') &&
-        !up.includes('CONTRATO') &&
-        !up.includes('TARIFA') &&
-        !up.includes('PRECIO') &&
-        !up.includes('IMPORTE')
-      );
-    });
-
-    return horaKey ? convertirNumeroHoras(row[horaKey]) : 0;
-  };
-
   const tieneValorValido = (valor: any): boolean => {
     const limpio = String(valor ?? '').trim().toUpperCase();
     if (!limpio) return false;
@@ -260,8 +270,8 @@ export function SyncView() {
     setIsError(false);
 
     try {
-      const [prodRows, lineasRows] = await Promise.all([
-        leerExcel(productosFile),
+      const [{ rows: prodRows, horasPorFila }, lineasRows] = await Promise.all([
+        leerProductosConColumnaL(productosFile),
         leerExcel(lineasContratoFile),
       ]);
 
@@ -371,7 +381,7 @@ export function SyncView() {
                 'Nº cliente ubicación',
               ])
             ).trim() || 'N/A',
-          'Nº de horas': parseHorasProducto(prod),
+          'Nº de horas': horasPorFila[idx] ?? 0,
           'Tipo Registro': 'Contratado',
           idUnico: `${idx}_${clave}`,
         });
@@ -385,7 +395,7 @@ export function SyncView() {
       setEquipos(resultado);
       setIsError(false);
       setStatusMessage(
-        `Sincronizados ${resultado.length} equipos con contrato (incluyendo Nº de horas). Ya están listos en Planificación / Revisiones.`
+        `Sincronizados ${resultado.length} equipos con contrato (horas leídas desde la columna L de Productos de Servicio). Ya están listos en Planificación / Revisiones.`
       );
     } catch (error: any) {
       setIsError(true);
@@ -421,7 +431,7 @@ export function SyncView() {
         <div>
           <h2 className="text-2xl font-bold tracking-tight">Sincronización</h2>
           <p className="text-sm text-muted-foreground">
-            Cruza <strong>Productos de Servicio</strong> contra <strong>Lista Líneas de Contrato</strong> y envía los equipos con contrato a <strong>Planificación / Revisiones</strong>.
+            Cruza <strong>Productos de Servicio</strong> (horas en columna L) contra <strong>Lista Líneas de Contrato</strong> y envía los equipos con contrato a <strong>Planificación / Revisiones</strong>.
           </p>
         </div>
         <span className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-100 text-emerald-900">
