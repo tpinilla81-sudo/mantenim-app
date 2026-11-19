@@ -1,0 +1,390 @@
+import { formatDateToEuropean } from '@/lib/maintenance-rules';
+
+export interface ProductoFiltrado {
+  nProducto: string;
+  nSerie: string;
+  nClientePropietario: string;
+  nClienteUbicacion: string;
+  contratoInterno: string;
+  contratoProveedor: string;
+  esPropia: boolean;
+}
+
+export interface CrucePedidoResultado {
+  'Nº pedido': string;
+  'Nº Producto Servicio': string;
+  'Método Cruce': string;
+  'Fiabilidad': 'Alta' | 'Media-Alta' | 'Media' | 'Sin cruce';
+  'Nº cliente': string;
+  'Nombre': string;
+  'Descripción': string;
+  'Fecha finalización': string;
+  'Tipo pedido servicio': string;
+  _asignado: boolean;
+}
+
+const PALABRAS_GENERICAS_EXCLUIDAS = new Set([
+  'BATERIA',
+  'BATERIAS',
+  'CARRETILLA',
+  'CARRETILLAS',
+  'MAQUINA',
+  'MAQUINAS',
+  'MÁQUINA',
+  'MÁQUINAS',
+  'REVISION',
+  'REVISIÓN',
+  'REVISIONES',
+  'MANTENIMIENTO',
+  'SERVICIO',
+  'PEDIDO',
+  'CONTRATO',
+  'ALQUILER',
+  'COMPRA',
+  'VENTA',
+  'PIEZA',
+  'PIEZAS',
+  'RECAMBIO',
+  'RECAMBIOS',
+  'RUEDA',
+  'RUEDAS',
+  'HORQUILLA',
+  'HORQUILLAS',
+  'ACEITE',
+  'FILTRO',
+  'FILTROS',
+  'CARGADOR',
+  'CARGADORES',
+  'S01',
+  'S02',
+  'N/A',
+  'NA',
+  'SIN',
+  'CON',
+  'PARA',
+  'DEL',
+  'LOS',
+  'LAS',
+]);
+
+function normCode(val: any): string {
+  return String(val ?? '').trim().toUpperCase();
+}
+
+function normText(val: any): string {
+  return String(val ?? '')
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+function parseTruthy(val: any): boolean {
+  if (typeof val === 'boolean') return val;
+  if (typeof val === 'number') return val === 1;
+  const s = String(val ?? '').trim().toLowerCase();
+  return s === 'true' || s === 'verdadero' || s === 'sí' || s === 'si' || s === '1' || s === 'yes';
+}
+
+function contieneTokenExacto(textoNormalizado: string, tokenRaw: string): boolean {
+  const token = normText(tokenRaw).trim();
+  if (!token || token.length < 3) return false;
+  if (PALABRAS_GENERICAS_EXCLUIDAS.has(token)) return false;
+
+  const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp(`(^|[^A-Z0-9])${escaped}([^A-Z0-9]|$)`, 'i');
+  return regex.test(textoNormalizado);
+}
+
+function findValueByPatterns(row: Record<string, any>, patterns: string[]): any {
+  const keys = Object.keys(row);
+  for (const pat of patterns) {
+    const pUpper = pat.toUpperCase();
+    const exactKey = keys.find((k) => k.trim().toUpperCase() === pUpper);
+    if (exactKey !== undefined && row[exactKey] !== undefined && row[exactKey] !== '') {
+      return row[exactKey];
+    }
+  }
+  for (const pat of patterns) {
+    const pUpper = pat.toUpperCase();
+    const partialKey = keys.find((k) => k.trim().toUpperCase().includes(pUpper));
+    if (partialKey !== undefined && row[partialKey] !== undefined && row[partialKey] !== '') {
+      return row[partialKey];
+    }
+  }
+  return '';
+}
+
+export function extraerProductosValidos(
+  prodData: Record<string, any>[],
+  lineasContratoData: Record<string, any>[] = []
+): {
+  productosValidos: ProductoFiltrado[];
+  contratoAProductoMap: Map<string, string[]>;
+} {
+  const contratoAProductoMap = new Map<string, string[]>();
+
+  lineasContratoData.forEach((linea) => {
+    const prod = normCode(
+      findValueByPatterns(linea, ['Nº prod. servicio', 'Nº producto', 'Producto', 'Prod. servicio', 'Código'])
+    );
+    const contrato = normCode(
+      findValueByPatterns(linea, ['Nº contrato', 'N. contrato', 'Contrato'])
+    );
+    if (prod && contrato) {
+      const current = contratoAProductoMap.get(contrato) || [];
+      if (!current.includes(prod)) {
+        current.push(prod);
+        contratoAProductoMap.set(contrato, current);
+      }
+    }
+  });
+
+  const productosValidos: ProductoFiltrado[] = [];
+  const seenProductos = new Set<string>();
+
+  prodData.forEach((row) => {
+    const nProducto = normCode(
+      findValueByPatterns(row, ['Nº prod. servicio', 'Nº producto', 'Nº', 'Producto', 'Prod. servicio'])
+    );
+    if (!nProducto || seenProductos.has(nProducto)) return;
+
+    const esPropia = parseTruthy(findValueByPatterns(row, ['Es propia', 'Propia']));
+    const contratoInterno = normCode(
+      findValueByPatterns(row, [
+        'Nº Contrato Interno Mantenimiento en Vigor',
+        'Contrato Interno Mantenimiento en Vigor',
+        'Nº Contrato Interno',
+        'Contrato Interno',
+      ])
+    );
+    const contratoProveedor = normCode(
+      findValueByPatterns(row, [
+        'Nº Contrato Proveedor en Vigor',
+        'Contrato Proveedor en Vigor',
+        'Nº Contrato Proveedor',
+        'Contrato Proveedor',
+      ])
+    );
+
+    const tieneContrato = Boolean(contratoInterno || contratoProveedor);
+    if (!esPropia && !tieneContrato) return;
+
+    seenProductos.add(nProducto);
+
+    const nSerie = normCode(
+      findValueByPatterns(row, ['Nº serie', 'Nº Serie', 'No. serie', 'Serie'])
+    );
+    const nClientePropietario = normCode(
+      findValueByPatterns(row, [
+        'Nº cliente propietario',
+        'Nº Cliente Propietario',
+        'Cliente propietario',
+        'Nº cliente',
+      ])
+    );
+    const nClienteUbicacion = normCode(
+      findValueByPatterns(row, [
+        'Nº cliente ubicación',
+        'Nº cliente ubicacion',
+        'Nº Cliente Ubicación',
+        'Cliente ubicación',
+        'Cliente ubicacion',
+      ])
+    );
+
+    productosValidos.push({
+      nProducto,
+      nSerie,
+      nClientePropietario,
+      nClienteUbicacion,
+      contratoInterno,
+      contratoProveedor,
+      esPropia,
+    });
+  });
+
+  return { productosValidos, contratoAProductoMap };
+}
+
+export function calcularCrucesPedidosRegistrados(params: {
+  pedidosRegData: Record<string, any>[];
+  prodData: Record<string, any>[];
+  lineasContratoData?: Record<string, any>[];
+  parseDateFn: (val: any) => Date | null;
+}): {
+  cruces: CrucePedidoResultado[];
+  asignados: CrucePedidoResultado[];
+  sinCruce: CrucePedidoResultado[];
+} {
+  const { pedidosRegData, prodData, lineasContratoData = [], parseDateFn } = params;
+  const { productosValidos, contratoAProductoMap } = extraerProductosValidos(
+    prodData,
+    lineasContratoData
+  );
+
+  const porClienteProp = new Map<string, ProductoFiltrado[]>();
+  const porClienteUbic = new Map<string, ProductoFiltrado[]>();
+
+  productosValidos.forEach((p) => {
+    if (p.nClientePropietario) {
+      const arr = porClienteProp.get(p.nClientePropietario) || [];
+      arr.push(p);
+      porClienteProp.set(p.nClientePropietario, arr);
+    }
+    if (p.nClienteUbicacion) {
+      const arr = porClienteUbic.get(p.nClienteUbicacion) || [];
+      arr.push(p);
+      porClienteUbic.set(p.nClienteUbicacion, arr);
+    }
+  });
+
+  const cruces: CrucePedidoResultado[] = [];
+
+  pedidosRegData.forEach((row) => {
+    const rawFechaFin = findValueByPatterns(row, [
+      'Fecha finalización',
+      'Fecha finalizacion',
+      'Fecha fin',
+      'F. finalización',
+    ]);
+    const rawFechaIni = findValueByPatterns(row, [
+      'Fecha inicial',
+      'Fecha inicio',
+      'F. inicial',
+      'Fecha registro',
+      'Fecha',
+    ]);
+
+    const fechaFinDate = parseDateFn(rawFechaFin);
+    const fechaIniDate = parseDateFn(rawFechaIni);
+    const fechaReferencia = fechaFinDate || fechaIniDate;
+
+    if (!fechaReferencia) return;
+    const year = fechaReferencia.getFullYear();
+    if (year !== 2025 && year !== 2026) return;
+
+    const nPedido = normCode(
+      findValueByPatterns(row, ['Nº pedido', 'Nº pedido servicio', 'Nº', 'Pedido', 'No.'])
+    );
+    const nCliente = normCode(
+      findValueByPatterns(row, ['Nº cliente', 'Cliente', 'Nº cliente factura', 'Nº cliente venta'])
+    );
+    const nombre = String(
+      findValueByPatterns(row, ['Nombre', 'Nombre cliente', 'Cliente nombre']) ?? ''
+    ).trim();
+    const descripcionRaw = String(
+      findValueByPatterns(row, ['Descripción', 'Descripcion', 'Descripción pedido']) ?? ''
+    ).trim();
+    const descripcionNorm = normText(descripcionRaw);
+    const tipoPedidoServicio = String(
+      findValueByPatterns(row, ['Tipo pedido servicio', 'Tipo pedido', 'Tipo servicio', 'Tipo']) ?? ''
+    ).trim();
+
+    const fechaFinFormateada = fechaFinDate
+      ? formatDateToEuropean(fechaFinDate)
+      : formatDateToEuropean(fechaIniDate!);
+
+    const candidatosClienteSet = new Map<string, ProductoFiltrado>();
+    if (nCliente) {
+      (porClienteProp.get(nCliente) || []).forEach((p) => candidatosClienteSet.set(p.nProducto, p));
+      (porClienteUbic.get(nCliente) || []).forEach((p) => candidatosClienteSet.set(p.nProducto, p));
+    }
+    const candidatosCliente = Array.from(candidatosClienteSet.values());
+
+    let productoAsignado = '';
+    let metodoCruce = 'Sin cruce automático';
+    let fiabilidad: CrucePedidoResultado['Fiabilidad'] = 'Sin cruce';
+    let asignado = false;
+
+    // 1. Serie en descripción + Cliente/Ubicación (Fiabilidad Alta)
+    if (!asignado && descripcionNorm && candidatosCliente.length > 0) {
+      const matchSerie = candidatosCliente.filter(
+        (p) => p.nSerie && p.nSerie.length >= 3 && contieneTokenExacto(descripcionNorm, p.nSerie)
+      );
+      if (matchSerie.length === 1) {
+        productoAsignado = matchSerie[0].nProducto;
+        metodoCruce = 'Serie en descripción + Cliente/Ubicación';
+        fiabilidad = 'Alta';
+        asignado = true;
+      }
+    }
+
+    // 2. Cliente único (Fiabilidad Alta)
+    if (!asignado && nCliente) {
+      const unicosProp = porClienteProp.get(nCliente) || [];
+      if (unicosProp.length === 1) {
+        productoAsignado = unicosProp[0].nProducto;
+        metodoCruce = 'Cliente único';
+        fiabilidad = 'Alta';
+        asignado = true;
+      }
+    }
+
+    // 3. Ubicación única (Fiabilidad Media-Alta)
+    if (!asignado && nCliente) {
+      const unicosUbic = porClienteUbic.get(nCliente) || [];
+      if (unicosUbic.length === 1) {
+        productoAsignado = unicosUbic[0].nProducto;
+        metodoCruce = 'Ubicación única';
+        fiabilidad = 'Media-Alta';
+        asignado = true;
+      }
+    }
+
+    // 4. Nº de producto en descripción + Cliente/Ubicación (Fiabilidad Media)
+    if (!asignado && descripcionNorm && candidatosCliente.length > 0) {
+      const matchProd = candidatosCliente.filter((p) =>
+        contieneTokenExacto(descripcionNorm, p.nProducto)
+      );
+      if (matchProd.length === 1) {
+        productoAsignado = matchProd[0].nProducto;
+        metodoCruce = 'Nº producto en descripción + Cliente/Ubicación';
+        fiabilidad = 'Media';
+        asignado = true;
+      }
+    }
+
+    // 5. Apoyo Líneas de Contrato solo si desambigua de forma unívoca entre candidatos del cliente
+    if (!asignado && candidatosCliente.length > 1 && contratoAProductoMap.size > 0) {
+      const setCandidatosIds = new Set(candidatosCliente.map((c) => c.nProducto));
+      const desambiguados = new Set<string>();
+
+      candidatosCliente.forEach((cand) => {
+        const contratosCand = [cand.contratoInterno, cand.contratoProveedor].filter(Boolean);
+        contratosCand.forEach((cId) => {
+          const vinculados = contratoAProductoMap.get(cId) || [];
+          const enCandidatos = vinculados.filter((v) => setCandidatosIds.has(v));
+          if (enCandidatos.length === 1) {
+            desambiguados.add(enCandidatos[0]);
+          }
+        });
+      });
+
+      if (desambiguados.size === 1) {
+        productoAsignado = Array.from(desambiguados)[0];
+        metodoCruce = 'Líneas de contrato (desambiguación unívoca)';
+        fiabilidad = 'Media';
+        asignado = true;
+      }
+    }
+
+    cruces.push({
+      'Nº pedido': nPedido,
+      'Nº Producto Servicio': productoAsignado,
+      'Método Cruce': metodoCruce,
+      'Fiabilidad': fiabilidad,
+      'Nº cliente': nCliente,
+      'Nombre': nombre,
+      'Descripción': descripcionRaw,
+      'Fecha finalización': fechaFinFormateada,
+      'Tipo pedido servicio': tipoPedidoServicio,
+      _asignado: asignado,
+    });
+  });
+
+  return {
+    cruces,
+    asignados: cruces.filter((c) => c._asignado),
+    sinCruce: cruces.filter((c) => !c._asignado),
+  };
+}
