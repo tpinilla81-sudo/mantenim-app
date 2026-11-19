@@ -20,6 +20,7 @@ import {
 const PAGE_SIZE = 50;
 
 interface FilaPlanificacion extends EquipoContratoSync {
+  'Fecha Última Revisión': string;
   'Fecha Próxima Revisión': string;
 }
 
@@ -63,7 +64,14 @@ function normalizarFila(raw: any, index: number): FilaPlanificacion {
     raw?.contador ??
     0;
 
-  const fechaRaw =
+  const fechaUltimaRaw =
+    raw?.['Fecha Última Revisión'] ??
+    raw?.['Fecha última revisión'] ??
+    raw?.['Fecha de la última revisión'] ??
+    raw?.fechaUltimaRevision ??
+    '';
+
+  const fechaProximaRaw =
     raw?.['Fecha Próxima Revisión'] ??
     raw?.['Fecha próxima revisión'] ??
     raw?.fechaProximaRevision ??
@@ -90,7 +98,8 @@ function normalizarFila(raw: any, index: number): FilaPlanificacion {
           raw?.clienteUbicacion ??
           'N/A'
       ).trim() || 'N/A',
-    'Fecha Próxima Revisión': String(fechaRaw ?? '').trim(),
+    'Fecha Última Revisión': String(fechaUltimaRaw ?? '').trim(),
+    'Fecha Próxima Revisión': String(fechaProximaRaw ?? '').trim(),
     idUnico: String(raw?.idUnico ?? `${index}_${nProd}`).trim(),
   };
 }
@@ -108,7 +117,8 @@ export function PlanificacionView() {
   const [filtroSucursal, setFiltroSucursal] = useState('');
   const [filtroPropietario, setFiltroPropietario] = useState('');
   const [filtroUbicacion, setFiltroUbicacion] = useState('');
-  const [filtroFechaRevision, setFiltroFechaRevision] = useState('');
+  const [filtroFechaUltima, setFiltroFechaUltima] = useState('');
+  const [filtroFechaProxima, setFiltroFechaProxima] = useState('');
 
   const cargarDatos = () => {
     try {
@@ -218,10 +228,18 @@ export function PlanificacionView() {
         return false;
       }
       if (
-        filtroFechaRevision.trim() &&
+        filtroFechaUltima.trim() &&
+        !item['Fecha Última Revisión']
+          .toLowerCase()
+          .includes(filtroFechaUltima.trim().toLowerCase())
+      ) {
+        return false;
+      }
+      if (
+        filtroFechaProxima.trim() &&
         !item['Fecha Próxima Revisión']
           .toLowerCase()
-          .includes(filtroFechaRevision.trim().toLowerCase())
+          .includes(filtroFechaProxima.trim().toLowerCase())
       ) {
         return false;
       }
@@ -244,7 +262,8 @@ export function PlanificacionView() {
     filtroSucursal,
     filtroPropietario,
     filtroUbicacion,
-    filtroFechaRevision,
+    filtroFechaUltima,
+    filtroFechaProxima,
     filtroGlobal,
   ]);
 
@@ -259,7 +278,8 @@ export function PlanificacionView() {
     filtroSucursal,
     filtroPropietario,
     filtroUbicacion,
-    filtroFechaRevision,
+    filtroFechaUltima,
+    filtroFechaProxima,
     filtroGlobal,
   ]);
 
@@ -280,7 +300,8 @@ export function PlanificacionView() {
       filtroSucursal.trim() ||
       filtroPropietario.trim() ||
       filtroUbicacion.trim() ||
-      filtroFechaRevision.trim()
+      filtroFechaUltima.trim() ||
+      filtroFechaProxima.trim()
   );
 
   const limpiarFiltros = () => {
@@ -293,7 +314,8 @@ export function PlanificacionView() {
     setFiltroSucursal('');
     setFiltroPropietario('');
     setFiltroUbicacion('');
-    setFiltroFechaRevision('');
+    setFiltroFechaUltima('');
+    setFiltroFechaProxima('');
   };
 
   const exportarExcel = () => {
@@ -307,169 +329,10 @@ export function PlanificacionView() {
       'Sucursal': rest['Sucursal'],
       'Cliente Propietario': rest['Cliente Propietario'],
       'Nombre Cliente Ubicación': rest['Nombre Cliente Ubicación'],
+      'Fecha Última Revisión': rest['Fecha Última Revisión'],
       'Fecha Próxima Revisión': rest['Fecha Próxima Revisión'],
     }));
     const ws = XLSX.utils.json_to_sheet(rowsExport);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Planificacion_Revisiones');
-    XLSX.writeFile(wb, `Planificacion_Revisiones_${new Date().toISOString().slice(0, 10)}.xlsx`);
-  };
-
-  return (
-    <div className="p-6 space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-2xl font-bold tracking-tight">Planificación / Revisiones</h2>
-          <p className="text-sm text-muted-foreground">
-            Equipos con contrato sincronizados desde <strong>Productos de Servicio</strong> y <strong>Lista Líneas de Contrato</strong>.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-100 text-emerald-900">
-            {filtrados.length} filtrados / {equipos.length} total
-          </span>
-          <button
-            type="button"
-            onClick={cargarDatos}
-            className="px-3 py-1.5 bg-secondary text-secondary-foreground rounded-lg hover:bg-secondary/80 text-xs font-medium flex items-center gap-1.5 cursor-pointer"
-          >
-            <RefreshCw className="w-3.5 h-3.5" /> Recargar
-          </button>
-          {filtrados.length > 0 && (
-            <button
-              type="button"
-              onClick={exportarExcel}
-              className="px-3.5 py-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-xs font-medium flex items-center gap-1.5 cursor-pointer"
-            >
-              <Download className="w-3.5 h-3.5" /> Exportar Excel
-            </button>
-          )}
-        </div>
-      </div>
-
-      {equipos.length === 0 ? (
-        <div className="bg-card border rounded-xl p-10 text-center space-y-3 shadow-sm">
-          <p className="text-sm font-semibold">No hay equipos con contrato cargados</p>
-          <p className="text-xs text-muted-foreground">
-            Sincroniza primero <strong>Productos de Servicio</strong> y <strong>Lista Líneas de Contrato</strong> en la pestaña de Sincronización.
-          </p>
-          <button
-            type="button"
-            onClick={cargarDatos}
-            className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-xs font-medium inline-flex items-center gap-1.5 cursor-pointer"
-          >
-            <RefreshCw className="w-3.5 h-3.5" /> Comprobar datos guardados
-          </button>
-        </div>
-      ) : (
-        <div className="bg-card border rounded-xl shadow-sm overflow-hidden">
-          <div className="p-4 border-b bg-muted/30 flex flex-wrap items-center justify-between gap-3">
-            <p className="text-xs font-semibold text-muted-foreground">
-              Mostrando {visibleRows.length} de {filtrados.length} filtrados / {equipos.length} total
-            </p>
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="flex items-center gap-1.5 bg-background border rounded-md px-2.5 py-1.5 text-xs">
-                <Search className="w-3.5 h-3.5 text-muted-foreground" />
-                <input
-                  type="text"
-                  placeholder="Buscar en toda la tabla..."
-                  value={filtroGlobal}
-                  onChange={(e) => setFiltroGlobal(e.target.value)}
-                  className="bg-transparent focus:outline-none w-44"
-                />
-              </div>
-              {hayFiltros && (
-                <button
-                  type="button"
-                  onClick={limpiarFiltros}
-                  className="px-2.5 py-1.5 bg-secondary text-secondary-foreground rounded-md text-xs font-medium flex items-center gap-1 cursor-pointer"
-                >
-                  <X className="w-3.5 h-3.5" /> Limpiar filtros
-                </button>
-              )}
-            </div>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-sm">
-              <thead>
-                <tr className="bg-muted/50 border-b text-xs uppercase text-muted-foreground">
-                  <th className="p-3">Nº Prod. Servicio</th>
-                  <th className="p-3">Nº Contrato</th>
-                  <th className="p-3">Nº Serie</th>
-                  <th className="p-3">Modelo</th>
-                  <th className="p-3 text-right">Nº de horas</th>
-                  <th className="p-3">Sucursal</th>
-                  <th className="p-3">Cliente Propietario</th>
-                  <th className="p-3">Nombre Cliente Ubicación</th>
-                  <th className="p-3">Fecha Próxima Revisión</th>
-                </tr>
-                <tr className="bg-muted/20 border-b">
-                  <th className="p-2">
-                    <input
-                      type="text"
-                      placeholder="Filtrar prod..."
-                      value={filtroProd}
-                      onChange={(e) => setFiltroProd(e.target.value)}
-                      className="w-full px-2 py-1 bg-background border rounded text-xs font-normal focus:outline-none"
-                    />
-                  </th>
-                  <th className="p-2">
-                    <input
-                      type="text"
-                      placeholder="Filtrar contrato..."
-                      value={filtroContrato}
-                      onChange={(e) => setFiltroContrato(e.target.value)}
-                      className="w-full px-2 py-1 bg-background border rounded text-xs font-normal focus:outline-none"
-                    />
-                  </th>
-                  <th className="p-2">
-                    <input
-                      type="text"
-                      placeholder="Filtrar serie..."
-                      value={filtroSerie}
-                      onChange={(e) => setFiltroSerie(e.target.value)}
-                      className="w-full px-2 py-1 bg-background border rounded text-xs font-normal focus:outline-none"
-                    />
-                  </th>
-                  <th className="p-2">
-                    <input
-                      type="text"
-                      placeholder="Filtrar modelo..."
-                      value={filtroModelo}
-                      onChange={(e) => setFiltroModelo(e.target.value)}
-                      className="w-full px-2 py-1 bg-background border rounded text-xs font-normal focus:outline-none"
-                    />
-                  </th>
-                  <th className="p-2">
-                    <input
-                      type="text"
-                      placeholder="Horas..."
-                      value={filtroHoras}
-                      onChange={(e) => setFiltroHoras(e.target.value)}
-                      className="w-full px-2 py-1 bg-background border rounded text-xs font-normal text-right focus:outline-none"
-                    />
-                  </th>
-                  <th className="p-2">
-                    <input
-                      type="text"
-                      placeholder="Sucursal..."
-                      value={filtroSucursal}
-                      onChange={(e) => setFiltroSucursal(e.target.value)}
-                      className="w-full px-2 py-1 bg-background border rounded text-xs font-normal focus:outline-none"
-                    />
-                  </th>
-                  <th className="p-2">
-                    <input
-                      type="text"
-                      placeholder="Cliente propietario (H)..."
-                      value={filtroPropietario}
-                      onChange={(e) => setFiltroPropietario(e.target.value)}
-                      className="w-full px-2 py-1 bg-background border rounded text-xs font-normal focus:outline-none"
-                    />
-                  </th>
-                  <th className="p-2">
-                    <input
-                      type="text"
-                      placeholder="Nombre cliente ubicación (I)..."
-                      value={filtroUbicacion}
+    XLSX.utils.book_append_sheet(wb, ws,
+                                 
