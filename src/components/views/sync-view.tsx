@@ -5,10 +5,9 @@ import * as XLSX from 'xlsx';
 import { Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Download, RefreshCw } from 'lucide-react';
 import { calcularProximaRevisionContrato, calcularProximaRevisionPropia } from '@/lib/maintenance-rules';
 
-interface ServicioRegistro {
+interface RevisionReal {
   fecha: Date;
   horas: number;
-  origen: 'tareas' | 'registrado';
 }
 
 export function SyncView() {
@@ -60,13 +59,10 @@ export function SyncView() {
         newFiles.productos = file;
       } else if (name.includes('contrato') || name.includes('líneas') || name.includes('lineas') || name.includes('line')) {
         newFiles.lineasContrato = file;
-      } else if (name.includes('registrado') || name.includes('reg') || name.includes('posted')) {
-        newFiles.pedidosReg = file;
       } else if (name.includes('tarea') || name.includes('task')) {
         newFiles.tareasServicio = file;
-      } else if (name.includes('pedido') || name.includes('ped') || name.includes('order')) {
-        if (!newFiles.tareasServicio) newFiles.tareasServicio = file;
-        else if (!newFiles.pedidosReg) newFiles.pedidosReg = file;
+      } else if (name.includes('registrado') || name.includes('reg') || name.includes('posted')) {
+        newFiles.pedidosReg = file;
       }
     });
 
@@ -136,6 +132,26 @@ export function SyncView() {
     });
   };
 
+  const readSheetAsRows = (file: File): Promise<any[][]> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const buffer = e.target?.result;
+          const workbook = XLSX.read(buffer, { type: 'array', cellDates: true });
+          const sheetName = workbook.SheetNames[0];
+          const sheet = workbook.Sheets[sheetName];
+          const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }) as any[][];
+          resolve(rows);
+        } catch (error) {
+          reject(error);
+        }
+      };
+      reader.onerror = (error) => reject(error);
+      reader.readAsArrayBuffer(file);
+    });
+  };
+
   const parseExcelDate = (val: any): Date | null => {
     if (!val) return null;
     if (val instanceof Date) {
@@ -179,7 +195,6 @@ export function SyncView() {
       upperKey.includes('PROD.') ||
       upperKey.includes('PROD ') ||
       upperKey.includes('SERVICIO') ||
-      upperKey.includes('TAREA') ||
       upperKey.includes('EQUIPO') ||
       upperKey.includes('MÁQUINA') ||
       upperKey.includes('MAQUINA') ||
@@ -187,21 +202,6 @@ export function SyncView() {
       upperKey === 'NO.' ||
       upperKey.includes('CÓDIGO') ||
       upperKey.includes('CODIGO')
-    );
-  };
-
-  const isDateColumn = (upperKey: string): boolean => {
-    return (
-      upperKey.includes('FECHA') ||
-      upperKey.startsWith('F.') ||
-      upperKey.startsWith('F ') ||
-      upperKey.includes('REGISTRO') ||
-      upperKey.includes('EJECUC') ||
-      upperKey.includes('DOCUMENTO') ||
-      upperKey.includes('APERTURA') ||
-      upperKey.includes('CIERRE') ||
-      upperKey.includes('INICIO') ||
-      upperKey.includes('FIN')
     );
   };
 
@@ -214,10 +214,61 @@ export function SyncView() {
     );
   };
 
+  /**
+   * Extrae de Tareas de Servicio las revisiones reales por equipo:
+   * - Columna P (índice 15): Nº de producto de servicio / máquina
+   * - Columna S (índice 18): Tipo pedido servicio ('MANTPREV', o 'MANTCORR' si Columna T indica 'REVISION')
+   * - Columna T (índice 19): Contraste de revisión ('REVISION')
+   * - Columna X (índice 23): Fecha en que se hizo
+   */
+  const parseTareasServicio = (rawRows: any[][]): Map<string, RevisionReal[]> => {
+    const map = new Map<string, RevisionReal[]>();
+
+    for (let i = 0; i < rawRows.length; i++) {
+      const row = rawRows[i];
+      if (!Array.isArray(row) || row.length <= 15) continue;
+
+      const prodId = String(row[15] ?? '').trim(); // Columna P
+      const tipoPedido = String(row[18] ?? '').trim().toUpperCase(); // Columna S
+      const contrasteDesc = String(row[19] ?? '').trim().toUpperCase(); // Columna T
+      const rawFecha = row.length > 23 ? row[23] : null; // Columna X
+
+      if (!prodId || prodId.toUpperCase().includes('PROD') || prodId.toUpperCase().includes('PRODUCTO')) {
+        continue;
+      }
+
+      const esRevision =
+        tipoPedido.includes('MANTPREV') ||
+        contrasteDesc.includes('REVISION') ||
+        contrasteDesc.includes('REVISIÓN');
+
+      if (!esRevision) continue;
+
+      const fecha = parseExcelDate(rawFecha);
+      if (!fecha) continue;
+
+      // Buscamos si alguna celda de la fila trae horas de contador
+      let horasFila = 0;
+      for (let c = 0; c < row.length; c++) {
+        const cellVal = row[c];
+        if (typeof cellVal === 'number' && c !== 15 && c !== 18 && c !== 19 && c !== 23 && cellVal > 0 && cellVal < 200000) {
+          // Solo si parece contador de horas y no fecha
+          horasFila = Math.max(horasFila, cellVal);
+        }
+      }
+
+      const existing = map.get(prodId) || [];
+      existing.push({ fecha, horas: horasFila });
+      map.set(prodId, existing);
+    }
+
+    return map;
+  };
+
   const handleProcessAndSync = async () => {
-    if (!files.revisiones || !files.productos || !files.lineasContrato || !files.tareasServicio || !files.pedidosReg) {
+    if (!files.revisiones || !files.productos || !files.lineasContrato || !files.tareasServicio) {
       setIsError(true);
-      setResultMessage('Faltan ficheros por asignar. Comprueba que los 5 huecos estén ocupados.');
+      setResultMessage('Faltan ficheros obligatorios (Revisiones, Productos de Servicio, Líneas de Contrato y Tareas de Servicio).');
       return;
     }
 
@@ -226,24 +277,25 @@ export function SyncView() {
     setIsError(false);
 
     try {
-      const [revData, prodData, lineasContratoData, tareasData, pedidosRegData] = await Promise.all([
+      const [revData, prodData, lineasContratoData, tareasRawRows] = await Promise.all([
         readFileAsJSON(files.revisiones),
         readFileAsJSON(files.productos),
         readFileAsJSON(files.lineasContrato),
-        readFileAsJSON(files.tareasServicio),
-        readFileAsJSON(files.pedidosReg),
+        readSheetAsRows(files.tareasServicio),
       ]);
 
       if (prodData.length === 0) {
         throw new Error('El fichero de Productos de Servicio está vacío.');
       }
 
-      // 1. Mapa de Revisiones
-      const revisionesMap = new Map<string, { contrato: string; ultimaFecha: Date | null; numRevisionesAnuales: number }>();
+      // 1. Revisiones reales desde Tareas de Servicio (Col P, Col S/T, Col X)
+      const revisionesPorEquipo = parseTareasServicio(tareasRawRows);
+
+      // 2. Mapa de Revisiones (contrato y revisiones anuales)
+      const revisionesMap = new Map<string, { contrato: string; numRevisionesAnuales: number }>();
       revData.forEach((rev) => {
         let prodServ = '';
         let numContrato = '';
-        let fechaUltima: Date | null = null;
         let revAnuales = 1;
 
         for (const k of Object.keys(rev)) {
@@ -255,11 +307,6 @@ export function SyncView() {
             if (valStr) prodServ = valStr;
           } else if ((upper === 'Nº CONTRATO' || upper === 'N. CONTRATO' || upper === 'CONTRATO') && !upper.includes('GRUPO') && valStr) {
             numContrato = valStr;
-          } else if (isDateColumn(upper)) {
-            const parsed = parseExcelDate(val);
-            if (parsed && (!fechaUltima || parsed.getTime() > fechaUltima.getTime())) {
-              fechaUltima = parsed;
-            }
           } else if (upper.includes('REVISIONES') || upper.includes('CANTIDAD') || upper.includes('Nº REVISIONES') || upper.includes('ANUAL')) {
             const parsedNum = Number(val);
             if (!isNaN(parsedNum) && parsedNum > 0) revAnuales = parsedNum;
@@ -268,22 +315,14 @@ export function SyncView() {
 
         if (prodServ) {
           const prev = revisionesMap.get(prodServ);
-          const bestDate =
-            prev?.ultimaFecha && fechaUltima
-              ? prev.ultimaFecha.getTime() > fechaUltima.getTime()
-                ? prev.ultimaFecha
-                : fechaUltima
-              : fechaUltima || prev?.ultimaFecha || null;
-
           revisionesMap.set(prodServ, {
             contrato: numContrato || prev?.contrato || '',
-            ultimaFecha: bestDate,
             numRevisionesAnuales: revAnuales || prev?.numRevisionesAnuales || 1,
           });
         }
       });
 
-      // 2. Mapa de Líneas de Contrato (excluyendo Cód. grupo contrato)
+      // 3. Mapa de Líneas de Contrato (excluyendo Cód. grupo contrato)
       const lineasMap = new Map<string, { contrato: string; sucursal: string }>();
       lineasContratoData.forEach((linea) => {
         let prodServ = '';
@@ -310,48 +349,10 @@ export function SyncView() {
         }
       });
 
-      // 3. Historial de fechas y horas desde Tareas de Servicio y Pedidos de Servicio Registrados
-      const historialPorEquipo = new Map<string, ServicioRegistro[]>();
-
-      const addRegistroHistorial = (rows: any[], origen: 'tareas' | 'registrado') => {
-        rows.forEach((row) => {
-          let prodServ = '';
-          let fechaReg: Date | null = null;
-          let horasReg = 0;
-
-          for (const k of Object.keys(row)) {
-            const val = row[k];
-            const upper = k.toUpperCase().trim();
-
-            if (isProductColumn(upper)) {
-              const s = String(val || '').trim();
-              if (s) prodServ = s;
-            } else if (isDateColumn(upper)) {
-              const parsedDate = parseExcelDate(val);
-              if (parsedDate && (!fechaReg || parsedDate.getTime() >= fechaReg.getTime())) {
-                fechaReg = parsedDate;
-              }
-            } else if (isHoursColumn(upper)) {
-              const parsedHours = parseHoursValue(val);
-              if (parsedHours > 0) horasReg = parsedHours;
-            }
-          }
-
-          if (prodServ && fechaReg) {
-            const list = historialPorEquipo.get(prodServ) || [];
-            list.push({ fecha: fechaReg, horas: horasReg, origen });
-            historialPorEquipo.set(prodServ, list);
-          }
-        });
-      };
-
-      addRegistroHistorial(tareasData, 'tareas');
-      addRegistroHistorial(pedidosRegData, 'registrado');
-
       // 4. Procesamiento unificado de Productos de Servicio
       const resultadoFinal: any[] = [];
       const currentYear = new Date().getFullYear();
-      let equiposConFecha = 0;
+      let equiposConUltimaRev = 0;
 
       prodData.forEach((prod, index) => {
         let prodServId = '';
@@ -402,7 +403,7 @@ export function SyncView() {
         if (prodServId) {
           const revInfo = revisionesMap.get(prodServId);
           const lineaInfo = lineasMap.get(prodServId);
-          const historial = (historialPorEquipo.get(prodServId) || []).sort(
+          const historialRev = (revisionesPorEquipo.get(prodServId) || []).sort(
             (a, b) => a.fecha.getTime() - b.fecha.getTime()
           );
 
@@ -417,19 +418,19 @@ export function SyncView() {
             upperC !== 'NULL' &&
             contratoStr !== '0';
 
-          if (esValido || esPropiaFlag || historial.length > 0) {
+          if (esValido || esPropiaFlag || historialRev.length > 0) {
             const sucursalFinal = sucursalProd || lineaInfo?.sucursal || 'S01';
 
-            const ultimoRegistro = historial.length > 0 ? historial[historial.length - 1] : null;
-            const ultimaFechaReal = ultimoRegistro?.fecha || revInfo?.ultimaFecha || null;
-            if (ultimaFechaReal) equiposConFecha++;
+            const ultimaRev = historialRev.length > 0 ? historialRev[historialRev.length - 1] : null;
+            const ultimaFechaReal = ultimaRev?.fecha || null;
+            if (ultimaFechaReal) equiposConUltimaRev++;
 
-            const registrosConHoras = historial.filter((h) => h.horas > 0);
+            const registrosConHoras = historialRev.filter((h) => h.horas > 0);
             const ultimoConHoras =
               registrosConHoras.length > 0 ? registrosConHoras[registrosConHoras.length - 1] : null;
             const horasActuales = ultimoConHoras ? ultimoConHoras.horas : horasProd;
 
-            const revisionesEnAno = historial.filter((h) => h.fecha.getFullYear() === currentYear).length;
+            const revisionesEnAno = historialRev.filter((h) => h.fecha.getFullYear() === currentYear).length;
 
             let fechaProximaStr = 'Pendiente';
 
@@ -442,15 +443,11 @@ export function SyncView() {
                   )
                 : 'Pendiente';
             } else {
-              const historicoFormateado = historial.map((h) => ({
-                fecha: h.fecha,
-                horas: h.horas,
-              }));
               fechaProximaStr = calcularProximaRevisionPropia(
                 ultimaFechaReal,
                 horasActuales,
                 modelo,
-                historicoFormateado
+                historialRev.map((h) => ({ fecha: h.fecha, horas: h.horas }))
               );
             }
 
@@ -476,7 +473,7 @@ export function SyncView() {
       setHasStoredData(true);
       setIsError(false);
       setResultMessage(
-        `Procesados ${resultadoFinal.length} equipos (${equiposConFecha} con fecha de última revisión detectada entre Tareas de Servicio y Pedidos Registrados).`
+        `Procesados ${resultadoFinal.length} equipos (${equiposConUltimaRev} con última revisión encontrada en Tareas de Servicio).`
       );
     } catch (error: any) {
       setIsError(true);
@@ -499,7 +496,7 @@ export function SyncView() {
   };
 
   const allAssigned = Boolean(
-    files.revisiones && files.productos && files.lineasContrato && files.tareasServicio && files.pedidosReg
+    files.revisiones && files.productos && files.lineasContrato && files.tareasServicio
   );
 
   return (
@@ -515,7 +512,7 @@ export function SyncView() {
         <div>
           <h3 className="text-lg font-semibold mb-1">Carga de Ficheros</h3>
           <p className="text-sm text-muted-foreground">
-            Sube los 5 excels de Business Central (incluyendo Tareas de Servicio y Pedidos de Servicio Registrados).
+            En Tareas de Servicio se lee el equipo en Columna P, el tipo de pedido en Columna S (contrastado con Columna T = REVISION) y la fecha de ejecución en Columna X.
           </p>
         </div>
 
@@ -547,7 +544,7 @@ export function SyncView() {
             </div>
             <div>
               <p className="text-base font-semibold">
-                {hasStoredData ? 'Arrastra nuevos excels para actualizar' : 'Arrastra los 5 excels aquí'}
+                {hasStoredData ? 'Arrastra nuevos excels para actualizar' : 'Arrastra los excels aquí'}
               </p>
             </div>
           </div>
@@ -581,7 +578,7 @@ export function SyncView() {
             },
             {
               key: 'pedidosReg',
-              label: '5. Pedidos de Servicio Registrados',
+              label: '5. Pedidos Registrados (opcional)',
               file: files.pedidosReg,
               setter: (f: File) => setFiles((p) => ({ ...p, pedidosReg: f })),
             },
