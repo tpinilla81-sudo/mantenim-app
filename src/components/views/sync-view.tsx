@@ -21,17 +21,73 @@ export interface EquipoContratoSync {
   'Nº Serie': string;
   'Modelo': string;
   'Sucursal': string;
+  'Es propia'?: boolean;
+  'Nº REVISIONES ANUALES'?: number | null;
+  horasPorDia?: number | null;
+  'Fecha Última Revisión'?: string;
+  'Fecha Próxima Revisión'?: string;
   idUnico: string;
 }
 
 export const STORAGE_CONTRATOS_KEY = 'mantenim_equipos_contrato';
 export const STORAGE_PLANIFICACION_KEY = 'mantenim_planificacion_data';
+export const STORAGE_RITMOS_KEY = 'mantenim_ritmos_horas_propios';
 export const SYNC_UPDATED_EVENT = 'mantenim-sync-updated';
 
 // H = 7, I = 8, L = 11 (índice base 0)
 const COL_IDX_CLIENTE_PROPIETARIO = 7;
 const COL_IDX_NOMBRE_CLIENTE_UBICACION = 8;
 const COL_IDX_HORAS = 11;
+
+function normalizarId(val: any): string {
+  if (val === undefined || val === null) return '';
+  let s = String(val).trim();
+  if (!s) return '';
+  if (/^\d+\.0$/.test(s)) {
+    s = s.replace(/\.0$/, '');
+  }
+  const sinCeros = s.replace(/^0+/, '');
+  return sinCeros || (s === '0' ? '0' : '');
+}
+
+function parseBooleano(val: any): boolean {
+  if (typeof val === 'boolean') return val;
+  if (typeof val === 'number') return val !== 0;
+  const s = String(val ?? '').trim().toLowerCase();
+  return s === 'true' || s === 'sí' || s === 'si' || s === '1' || s === 'yes' || s === 'verdadero';
+}
+
+function parseFechaValor(val: any): Date | null {
+  if (!val) return null;
+  if (val instanceof Date && !isNaN(val.getTime())) {
+    return new Date(val.getFullYear(), val.getMonth(), val.getDate());
+  }
+  if (typeof val === 'number' && val > 20000 && val < 80000) {
+    const parsed = XLSX.SSF.parse_date_code(val);
+    if (parsed && parsed.y && parsed.m && parsed.d) {
+      return new Date(parsed.y, parsed.m - 1, parsed.d);
+    }
+  }
+  const s = String(val).trim();
+  if (!s) return null;
+  const m = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);
+  if (m) {
+    const dt = new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+    if (!isNaN(dt.getTime())) return dt;
+  }
+  const iso = new Date(s);
+  if (!isNaN(iso.getTime())) {
+    return new Date(iso.getFullYear(), iso.getMonth(), iso.getDate());
+  }
+  return null;
+}
+
+function formatDDMMYYYY(dt: Date): string {
+  const dd = String(dt.getDate()).padStart(2, '0');
+  const mm = String(dt.getMonth() + 1).padStart(2, '0');
+  const yyyy = dt.getFullYear();
+  return `${dd}/${mm}/${yyyy}`;
+}
 
 export function SyncView() {
   const [loading, setLoading] = useState(false);
@@ -42,10 +98,18 @@ export function SyncView() {
 
   const [productosFile, setProductosFile] = useState<File | null>(null);
   const [lineasContratoFile, setLineasContratoFile] = useState<File | null>(null);
+  const [revisionesAnualesFile, setRevisionesAnualesFile] = useState<File | null>(null);
+  const [pedidosRegistradosFile, setPedidosRegistradosFile] = useState<File | null>(null);
+  const [tareaServicioFile, setTareaServicioFile] = useState<File | null>(null);
+  const [tablaAdicionalFile, setTablaAdicionalFile] = useState<File | null>(null);
 
   const dropRef = useRef<HTMLInputElement>(null);
   const prodRef = useRef<HTMLInputElement>(null);
   const lineasRef = useRef<HTMLInputElement>(null);
+  const revAnualesRef = useRef<HTMLInputElement>(null);
+  const pedidosRegRef = useRef<HTMLInputElement>(null);
+  const tareaServRef = useRef<HTMLInputElement>(null);
+  const extraRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     try {
@@ -66,11 +130,21 @@ export function SyncView() {
   const asignarArchivos = (fileList: FileList | File[]) => {
     let nextProd = productosFile;
     let nextLineas = lineasContratoFile;
+    let nextRev = revisionesAnualesFile;
+    let nextPed = pedidosRegistradosFile;
+    let nextTarea = tareaServicioFile;
+    let nextExtra = tablaAdicionalFile;
     const sinClasificar: File[] = [];
 
     Array.from(fileList).forEach((file) => {
       const name = file.name.toLowerCase();
-      if (name.includes('linea') || name.includes('línea') || name.includes('contrato')) {
+      if (name.includes('revisiones-anuales') || name.includes('revisiones_anuales') || name.includes('anuales')) {
+        nextRev = file;
+      } else if (name.includes('pedidos') && name.includes('registrad')) {
+        nextPed = file;
+      } else if (name.includes('tarea') && name.includes('servicio')) {
+        nextTarea = file;
+      } else if (name.includes('linea') || name.includes('línea') || name.includes('contrato')) {
         nextLineas = file;
       } else if (name.includes('producto') || name.includes('prod') || name.includes('servicio')) {
         nextProd = file;
@@ -82,10 +156,18 @@ export function SyncView() {
     sinClasificar.forEach((file) => {
       if (!nextProd) nextProd = file;
       else if (!nextLineas) nextLineas = file;
+      else if (!nextRev) nextRev = file;
+      else if (!nextPed) nextPed = file;
+      else if (!nextTarea) nextTarea = file;
+      else if (!nextExtra) nextExtra = file;
     });
 
     setProductosFile(nextProd);
     setLineasContratoFile(nextLineas);
+    setRevisionesAnualesFile(nextRev);
+    setPedidosRegistradosFile(nextPed);
+    setTareaServicioFile(nextTarea);
+    setTablaAdicionalFile(nextExtra);
     setStatusMessage(null);
     setIsError(false);
   };
@@ -108,7 +190,9 @@ export function SyncView() {
         filaStr.includes('modelo') ||
         filaStr.includes('hora') ||
         filaStr.includes('nº') ||
-        filaStr.includes('no.')
+        filaStr.includes('no.') ||
+        filaStr.includes('descripci') ||
+        filaStr.includes('pedido')
       ) {
         return i;
       }
@@ -140,6 +224,7 @@ export function SyncView() {
     horas: number;
     clientePropietario: string;
     nombreClienteUbicacion: string;
+    esPropia: boolean;
   }
 
   const leerProductosConColumnasFijas = (file: File): Promise<ProductoExtraido[]> => {
@@ -148,7 +233,7 @@ export function SyncView() {
       reader.onload = (e) => {
         try {
           const data = e.target?.result;
-          const workbook = XLSX.read(data, { type: 'array' });
+          const workbook = XLSX.read(data, { type: 'array', cellDates: true });
           const sheet = workbook.Sheets[workbook.SheetNames[0]];
           const matrix = XLSX.utils.sheet_to_json(sheet, {
             header: 1,
@@ -177,11 +262,18 @@ export function SyncView() {
                 ? filaMatriz[COL_IDX_NOMBRE_CLIENTE_UBICACION]
                 : '';
 
+            const esPropiaRaw =
+              rowObj['Es propia'] ??
+              rowObj['Es Propia'] ??
+              rowObj['esPropia'] ??
+              false;
+
             return {
               rowObj,
               horas: convertirNumeroHoras(rawHoras),
               clientePropietario: String(rawProp ?? '').trim() || 'N/A',
               nombreClienteUbicacion: String(rawUbic ?? '').trim() || 'N/A',
+              esPropia: parseBooleano(esPropiaRaw),
             };
           });
 
@@ -201,7 +293,7 @@ export function SyncView() {
       reader.onload = (e) => {
         try {
           const data = e.target?.result;
-          const workbook = XLSX.read(data, { type: 'array' });
+          const workbook = XLSX.read(data, { type: 'array', cellDates: true });
           const sheet = workbook.Sheets[workbook.SheetNames[0]];
           const matrix = XLSX.utils.sheet_to_json(sheet, {
             header: 1,
@@ -278,7 +370,7 @@ export function SyncView() {
   const handleProcesar = async () => {
     if (!productosFile || !lineasContratoFile) {
       setIsError(true);
-      setStatusMessage('Selecciona Productos de Servicio y Lista Líneas de Contrato.');
+      setStatusMessage('Selecciona al menos Productos de Servicio y Lista Líneas de Contrato.');
       return;
     }
 
@@ -287,15 +379,28 @@ export function SyncView() {
     setIsError(false);
 
     try {
-      const [productosExtraidos, lineasRows] = await Promise.all([
+      const [
+        productosExtraidos,
+        lineasRows,
+        revAnualesRows,
+        pedidosRegRows,
+        tareaServRows,
+      ] = await Promise.all([
         leerProductosConColumnasFijas(productosFile),
         leerExcel(lineasContratoFile),
+        revisionesAnualesFile ? leerExcel(revisionesAnualesFile) : Promise.resolve([]),
+        pedidosRegistradosFile ? leerExcel(pedidosRegistradosFile) : Promise.resolve([]),
+        tareaServicioFile ? leerExcel(tareaServicioFile) : Promise.resolve([]),
       ]);
 
-      const mapaContratos = new Map<string, { contrato: string; sucursal: string }>();
+      // 1. Mapa de contratos por Nº prod. servicio normalizado
+      const mapaContratos = new Map<
+        string,
+        { contrato: string; sucursal: string; clienteNombre: string }
+      >();
 
       lineasRows.forEach((linea) => {
-        const idProd = String(
+        const idProdRaw = String(
           buscarColumna(
             linea,
             ['Nº prod. servicio', 'Nº producto', 'Prod. servicio', 'Producto', 'Nº', 'No.', 'Código'],
@@ -312,271 +417,68 @@ export function SyncView() {
         const sucursal = String(
           buscarColumna(linea, ['Sucursal', 'Cód. sucursal', 'Delegación', 'Centro'], ['GRUPO'])
         ).trim();
+        const clienteNombre = String(
+          buscarColumna(linea, ['Nombre Cliente', 'Nombre', 'Cliente'])
+        )
+          .trim()
+          .toUpperCase();
 
-        if (idProd && tieneValorValido(contrato)) {
-          const clave = idProd.toUpperCase();
+        const clave = normalizarId(idProdRaw);
+        if (clave && tieneValorValido(contrato)) {
           if (!mapaContratos.has(clave)) {
-            mapaContratos.set(clave, { contrato, sucursal });
+            mapaContratos.set(clave, { contrato, sucursal, clienteNombre });
           }
         }
       });
 
-      const resultado: EquipoContratoSync[] = [];
-      const yaIncluidos = new Set<string>();
+      // 2. Mapa de Nº REVISIONES ANUALES desde REVISIONES-ANUALES-CONTRATOS
+      const mapaRevisionesAnuales = new Map<string, number>();
+      const mapaContratoPorProdRev = new Map<string, string>();
 
-      productosExtraidos.forEach(({ rowObj, horas, clientePropietario, nombreClienteUbicacion }, idx) => {
-        const idProd = String(
-          buscarColumna(
-            rowObj,
-            ['Nº prod. servicio', 'Nº producto', 'Prod. servicio', 'Producto', 'Nº', 'No.', 'Código'],
-            ['GRUPO', 'TIPO']
-          )
+      revAnualesRows.forEach((row) => {
+        const idProdRaw = buscarColumna(row, [
+          'Nº PRODUCTO SERVICIO',
+          'Nº prod. servicio',
+          'Nº Producto',
+          'Producto',
+        ]);
+        const contratoRev = String(
+          buscarColumna(row, ['Nº CONTRATO', 'Nº Contrato', 'Contrato'])
         ).trim();
-        if (!idProd) return;
+        const revRaw = buscarColumna(row, [
+          'Nº REVISIONES ANUALES',
+          'Nº revisiones anuales',
+          'Revisiones anuales',
+          'Revisiones',
+        ]);
 
-        const clave = idProd.toUpperCase();
-        const contratoLinea = mapaContratos.get(clave);
-        const contratoProd = String(
-          buscarColumna(
-            rowObj,
-            ['Nº contrato', 'N. contrato', 'Contrato', 'Nº de contrato'],
-            ['GRUPO', 'TIPO']
-          )
-        ).trim();
-
-        const tieneEnLinea = Boolean(contratoLinea && tieneValorValido(contratoLinea.contrato));
-        const tieneEnProd = tieneValorValido(contratoProd);
-        const contratoFinal = tieneEnLinea
-          ? contratoLinea!.contrato
-          : tieneEnProd
-          ? contratoProd
-          : '';
-
-        if (!tieneValorValido(contratoFinal)) return;
-        if (yaIncluidos.has(clave)) return;
-        yaIncluidos.add(clave);
-
-        resultado.push({
-          'Nº prod. servicio': idProd,
-          'Nº Contrato': contratoFinal,
-          'Nº de horas': horas,
-          'Cliente Propietario': clientePropietario,
-          'Nombre Cliente Ubicación': nombreClienteUbicacion,
-          'Nº Serie':
-            String(
-              buscarColumna(rowObj, ['Nº serie', 'Nº Serie', 'No. serie', 'Serie'], ['PRODUCTO'])
-            ).trim() || 'N/A',
-          'Modelo':
-            String(buscarColumna(rowObj, ['Modelo', 'Cód. modelo', 'Descripción modelo'])).trim() ||
-            'N/A',
-          'Sucursal':
-            String(
-              buscarColumna(rowObj, ['Sucursal', 'Cód. sucursal', 'Delegación', 'Centro'])
-            ).trim() ||
-            contratoLinea?.sucursal ||
-            'N/A',
-          idUnico: `${idx}_${clave}`,
-        });
+        const clave = normalizarId(idProdRaw);
+        const revNum = Number(String(revRaw ?? '').replace(',', '.').trim());
+        if (clave && !isNaN(revNum) && revNum > 0) {
+          const prev = mapaRevisionesAnuales.get(clave);
+          if (!prev || revNum > prev) {
+            mapaRevisionesAnuales.set(clave, revNum);
+          }
+        }
+        if (clave && tieneValorValido(contratoRev) && !mapaContratoPorProdRev.has(clave)) {
+          mapaContratoPorProdRev.set(clave, contratoRev);
+        }
       });
 
-      const serialized = JSON.stringify(resultado);
-      localStorage.setItem(STORAGE_CONTRATOS_KEY, serialized);
-      localStorage.setItem(STORAGE_PLANIFICACION_KEY, serialized);
-      window.dispatchEvent(new Event(SYNC_UPDATED_EVENT));
+      // 3. Procesar Pedidos Servicio Registrados (propios empiezan por nº producto; clientes llevan REVISION CLIENTE)
+      const ultimaFechaRegistrada = new Map<string, Date>();
+      const pedidosPorClienteRev = new Map<string, Date[]>();
+      const eventosPropios: Array<{
+        prodNorm: string;
+        fecha: Date;
+        horasDesc: number | null;
+      }> = [];
 
-      setEquipos(resultado);
-      setIsError(false);
-      setStatusMessage(
-        `Sincronizados ${resultado.length} equipos con contrato (Horas col. L, Cliente Propietario col. H y Nombre Cliente Ubicación col. I).`
-      );
-    } catch (error: any) {
-      setIsError(true);
-      setStatusMessage(error?.message || 'Error al sincronizar los ficheros.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleDescargarExcel = () => {
-    if (equipos.length === 0) return;
-    const rowsExport = equipos.map(({ idUnico, ...rest }) => rest);
-    const hoja = XLSX.utils.json_to_sheet(rowsExport);
-    const libro = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(libro, hoja, 'Equipos_Con_Contrato');
-    XLSX.writeFile(libro, `Equipos_Con_Contrato_${new Date().toISOString().slice(0, 10)}.xlsx`);
-  };
-
-  const handleReset = () => {
-    localStorage.removeItem(STORAGE_CONTRATOS_KEY);
-    localStorage.removeItem(STORAGE_PLANIFICACION_KEY);
-    window.dispatchEvent(new Event(SYNC_UPDATED_EVENT));
-    setEquipos([]);
-    setProductosFile(null);
-    setLineasContratoFile(null);
-    setStatusMessage(null);
-    setIsError(false);
-  };
-
-  return (
-    <div className="p-6 space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h2 className="text-2xl font-bold tracking-tight">Sincronización</h2>
-          <p className="text-sm text-muted-foreground">
-            Cruza <strong>Productos de Servicio</strong> contra <strong>Lista Líneas de Contrato</strong> y envía los equipos con contrato a <strong>Planificación / Revisiones</strong>.
-          </p>
-        </div>
-        <span className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-100 text-emerald-900">
-          {equipos.length > 0
-            ? `${equipos.length} equipos con contrato sincronizados`
-            : 'Sin sincronizar'}
-        </span>
-      </div>
-
-      <div className="bg-card border rounded-xl p-6 shadow-sm space-y-5">
-        <div
-          onDragOver={(e) => {
-            e.preventDefault();
-            setIsDragging(true);
-          }}
-          onDragLeave={() => setIsDragging(false)}
-          onDrop={handleDrop}
-          onClick={() => dropRef.current?.click()}
-          className={`border-2 border-dashed rounded-xl p-7 text-center cursor-pointer transition-colors ${
-            isDragging
-              ? 'border-primary bg-primary/5'
-              : 'border-muted-foreground/30 hover:border-primary/60 bg-muted/20'
-          }`}
-        >
-          <input
-            ref={dropRef}
-            type="file"
-            multiple
-            accept=".xlsx,.xls"
-            onChange={(e) => e.target.files && asignarArchivos(e.target.files)}
-            className="hidden"
-          />
-          <div className="flex flex-col items-center gap-2">
-            <Upload className="w-7 h-7 text-primary" />
-            <p className="text-sm font-medium">
-              Arrastra aquí Productos de Servicio y Lista Líneas de Contrato
-            </p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div
-            onClick={() => prodRef.current?.click()}
-            className={`p-4 border rounded-lg flex items-center justify-between cursor-pointer ${
-              productosFile ? 'bg-emerald-50/50 border-emerald-300' : 'bg-muted/20 border-dashed'
-            }`}
-          >
-            <input
-              ref={prodRef}
-              type="file"
-              accept=".xlsx,.xls"
-              className="hidden"
-              onChange={(e) => {
-                if (e.target.files?.[0]) {
-                  setProductosFile(e.target.files[0]);
-                  setStatusMessage(null);
-                }
-              }}
-            />
-            <div className="flex items-center gap-3 truncate">
-              <FileSpreadsheet className="w-5 h-5 text-emerald-700 shrink-0" />
-              <div className="truncate">
-                <p className="text-xs font-bold uppercase">Productos de Servicio</p>
-                <p className="text-xs text-muted-foreground truncate">
-                  {productosFile ? productosFile.name : 'Sin seleccionar'}
-                </p>
-              </div>
-            </div>
-            {productosFile && <CheckCircle2 className="w-5 h-5 text-emerald-700 shrink-0" />}
-          </div>
-
-          <div
-            onClick={() => lineasRef.current?.click()}
-            className={`p-4 border rounded-lg flex items-center justify-between cursor-pointer ${
-              lineasContratoFile ? 'bg-emerald-50/50 border-emerald-300' : 'bg-muted/20 border-dashed'
-            }`}
-          >
-            <input
-              ref={lineasRef}
-              type="file"
-              accept=".xlsx,.xls"
-              className="hidden"
-              onChange={(e) => {
-                if (e.target.files?.[0]) {
-                  setLineasContratoFile(e.target.files[0]);
-                  setStatusMessage(null);
-                }
-              }}
-            />
-            <div className="flex items-center gap-3 truncate">
-              <FileSpreadsheet className="w-5 h-5 text-emerald-700 shrink-0" />
-              <div className="truncate">
-                <p className="text-xs font-bold uppercase">Lista Líneas de Contrato</p>
-                <p className="text-xs text-muted-foreground truncate">
-                  {lineasContratoFile ? lineasContratoFile.name : 'Sin seleccionar'}
-                </p>
-              </div>
-            </div>
-            {lineasContratoFile && <CheckCircle2 className="w-5 h-5 text-emerald-700 shrink-0" />}
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-3 pt-2 border-t">
-          <button
-            type="button"
-            disabled={loading || !productosFile || !lineasContratoFile}
-            onClick={handleProcesar}
-            className="px-5 py-2.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 text-sm font-medium flex items-center gap-2 cursor-pointer"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            {loading ? 'Sincronizando...' : 'Sincronizar'}
-          </button>
-
-          {equipos.length > 0 && (
-            <button
-              type="button"
-              onClick={handleDescargarExcel}
-              className="px-4 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium flex items-center gap-2 cursor-pointer"
-            >
-              <Download className="w-4 h-4" /> Descargar Excel ({equipos.length})
-            </button>
-          )}
-
-          {(equipos.length > 0 || productosFile || lineasContratoFile) && (
-            <button
-              type="button"
-              onClick={handleReset}
-              className="px-3.5 py-2.5 bg-secondary text-secondary-foreground rounded-lg hover:bg-secondary/80 text-sm font-medium flex items-center gap-1.5 cursor-pointer"
-            >
-              <Trash2 className="w-4 h-4" /> Vaciar
-            </button>
-          )}
-        </div>
-
-        {statusMessage && (
-          <div
-            className={`p-4 rounded-lg border text-sm font-medium flex items-center gap-2.5 ${
-              isError
-                ? 'bg-destructive/10 text-destructive border-destructive/30'
-                : 'bg-emerald-50 text-emerald-900 border-emerald-200'
-            }`}
-          >
-            {isError ? (
-              <AlertCircle className="w-5 h-5 shrink-0" />
-            ) : (
-              <CheckCircle2 className="w-5 h-5 shrink-0" />
-            )}
-            <span>{statusMessage}</span>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-export default SyncView;
+      pedidosRegRows.forEach((ped) => {
+        const desc = String(buscarColumna(ped, ['Descripción', 'Descripcion'])).trim();
+        const tipo = String(
+          buscarColumna(ped, ['Tipo pedido servicio', 'Tipo Pedido Servicio', 'Tipo'])
+        )
+          .trim()
+          .toUpperCase();
+        const cliente
