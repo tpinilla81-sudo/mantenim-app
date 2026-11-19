@@ -28,8 +28,7 @@ export const STORAGE_CONTRATOS_KEY = 'mantenim_equipos_contrato';
 export const STORAGE_PLANIFICACION_KEY = 'mantenim_planificacion_data';
 export const SYNC_UPDATED_EVENT = 'mantenim-sync-updated';
 
-// Índices en base 0 de la hoja Excel "Productos de Servicio":
-// H = 7 (Cliente Propietario), I = 8 (Nombre Cliente Ubicación), L = 11 (Nº de horas)
+// H = 7, I = 8, L = 11 (índice base 0)
 const COL_IDX_CLIENTE_PROPIETARIO = 7;
 const COL_IDX_NOMBRE_CLIENTE_UBICACION = 8;
 const COL_IDX_HORAS = 11;
