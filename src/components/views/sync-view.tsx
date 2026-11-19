@@ -12,24 +12,28 @@ import {
   Trash2,
 } from 'lucide-react';
 
-export interface ProductoContratoBase {
-  nProductoServicio: string;
-  nContrato: string;
-  nSerie: string;
-  modelo: string;
-  sucursal: string;
-  clientePropietario: string;
-  clienteUbicacion: string;
+export interface EquipoContratoSync {
+  'Nº prod. servicio': string;
+  'Nº Contrato': string;
+  'Origen Contrato': 'Línea de Contrato' | 'Producto de Servicio' | 'Ambos';
+  'Nº Serie': string;
+  'Modelo': string;
+  'Sucursal': string;
+  'Cliente Propietario': string;
+  'Cliente Ubicación': string;
+  'Tipo Registro': 'Contratado';
+  idUnico: string;
 }
 
-const STORAGE_KEY = 'mantenim_base_contratos';
+const STORAGE_CONTRATOS_KEY = 'mantenim_equipos_contrato';
+const STORAGE_PLANIFICACION_KEY = 'mantenim_planificacion_data';
 
 export function SyncView() {
   const [loading, setLoading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [isError, setIsError] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
-  const [items, setItems] = useState<ProductoContratoBase[]>([]);
+  const [equipos, setEquipos] = useState<EquipoContratoSync[]>([]);
 
   const [productosFile, setProductosFile] = useState<File | null>(null);
   const [lineasContratoFile, setLineasContratoFile] = useState<File | null>(null);
@@ -40,15 +44,15 @@ export function SyncView() {
 
   useEffect(() => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
+      const saved = localStorage.getItem(STORAGE_CONTRATOS_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) {
-          setItems(parsed);
+          setEquipos(parsed);
         }
       }
-    } catch (error) {
-      console.error('Error leyendo storage:', error);
+    } catch (err) {
+      console.error('Error leyendo equipos sincronizados:', err);
     }
   }, []);
 
@@ -181,7 +185,7 @@ export function SyncView() {
   const handleProcesar = async () => {
     if (!productosFile || !lineasContratoFile) {
       setIsError(true);
-      setStatusMessage('Selecciona ambos Excels: Productos de Servicio y Lista Líneas de Contrato.');
+      setStatusMessage('Selecciona Productos de Servicio y Lista Líneas de Contrato.');
       return;
     }
 
@@ -190,7 +194,7 @@ export function SyncView() {
     setIsError(false);
 
     try {
-      const [productosRows, lineasRows] = await Promise.all([
+      const [prodRows, lineasRows] = await Promise.all([
         leerExcel(productosFile),
         leerExcel(lineasContratoFile),
       ]);
@@ -222,10 +226,10 @@ export function SyncView() {
         }
       });
 
-      const resultado: ProductoContratoBase[] = [];
+      const resultado: EquipoContratoSync[] = [];
       const yaIncluidos = new Set<string>();
 
-      productosRows.forEach((prod) => {
+      prodRows.forEach((prod, idx) => {
         const idProd = buscarColumna(
           prod,
           ['Nº prod. servicio', 'Nº producto', 'Prod. servicio', 'Producto', 'Nº', 'No.', 'Código'],
@@ -241,79 +245,68 @@ export function SyncView() {
           ['GRUPO', 'TIPO']
         );
 
-        const contratoFinal = contratoLinea?.contrato || (tieneValorValido(contratoProd) ? contratoProd : '');
+        const tieneEnLinea = Boolean(contratoLinea && tieneValorValido(contratoLinea.contrato));
+        const tieneEnProd = tieneValorValido(contratoProd);
+        const contratoFinal = tieneEnLinea
+          ? contratoLinea!.contrato
+          : tieneEnProd
+          ? contratoProd
+          : '';
+
         if (!tieneValorValido(contratoFinal)) return;
         if (yaIncluidos.has(clave)) return;
         yaIncluidos.add(clave);
 
+        const origenContrato: EquipoContratoSync['Origen Contrato'] =
+          tieneEnLinea && tieneEnProd
+            ? 'Ambos'
+            : tieneEnLinea
+            ? 'Línea de Contrato'
+            : 'Producto de Servicio';
+
         resultado.push({
-          nProductoServicio: idProd,
-          nContrato: contratoFinal,
-          nSerie: buscarColumna(prod, ['Nº serie', 'Nº Serie', 'No. serie', 'Serie'], ['PRODUCTO']) || '-',
-          modelo: buscarColumna(prod, ['Modelo', 'Cód. modelo', 'Descripción modelo']) || '-',
-          sucursal:
+          'Nº prod. servicio': idProd,
+          'Nº Contrato': contratoFinal,
+          'Origen Contrato': origenContrato,
+          'Nº Serie': buscarColumna(prod, ['Nº serie', 'Nº Serie', 'No. serie', 'Serie'], ['PRODUCTO']) || 'N/A',
+          'Modelo': buscarColumna(prod, ['Modelo', 'Cód. modelo', 'Descripción modelo']) || 'N/A',
+          'Sucursal':
             buscarColumna(prod, ['Sucursal', 'Cód. sucursal', 'Delegación', 'Centro']) ||
             contratoLinea?.sucursal ||
-            '-',
-          clientePropietario:
+            'N/A',
+          'Cliente Propietario':
             buscarColumna(prod, [
               'Nombre cliente propietario',
               'Cliente propietario',
               'Nº cliente propietario',
               'Nombre',
-            ]) || '-',
-          clienteUbicacion:
+            ]) || 'N/A',
+          'Cliente Ubicación':
             buscarColumna(prod, [
               'Nombre cliente ubicación',
               'Nombre cliente ubicacion',
               'Cliente ubicación',
               'Nº cliente ubicación',
-            ]) || '-',
-        });
-      });
-
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(resultado));
-      setItems(resultado);
-      setIsError(false);
-      setStatusMessage(
-        `Listo: ${resultado.length} productos de servicio con contrato obtenidos de ${productosRows.length} productos.`
+            ]) || 'N/A',
+          'Tipo Registro': 'Contratado',
+          idUnico: `${idx}_${clave}`, }); });  // Guardamos los equipos sincronizados y los dejamos disponibles para Planificación / Revisiones localStorage.setItem(STORAGE_CONTRATOS_KEY, JSON.stringify(resultado)); localStorage.setItem(STORAGE_PLANIFICACION_KEY, JSON.stringify(resultado)); window.dispatchEvent(new Event('mantenim-sync-updated'));  setEquipos(resultado); setIsError(false); setStatusMessage( `Sincronizados ${resultado.length} equipos con contrato. Ya están disponibles en Planificación / Revisiones.`
       );
     } catch (error: any) {
       setIsError(true);
-      setStatusMessage(error?.message || 'Error al leer los ficheros.');
+      setStatusMessage(error?.message || 'Error al sincronizar los ficheros.');
     } finally {
       setLoading(false);
     }
   };
 
   const handleDescargarExcel = () => {
-    if (items.length === 0) return;
-    const hoja = XLSX.utils.json_to_sheet(items);
+    if (equipos.length === 0) return;
+    const rowsExport = equipos.map(({ idUnico, ...rest }) => rest);
+    const hoja = XLSX.utils.json_to_sheet(rowsExport);
     const libro = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(libro, hoja, 'Equipos_Con_Contrato');
-    XLSX.writeFile(libro, `Equipos_Con_Contrato_${new Date().toISOString().slice(0, 10)}.xlsx`);
-  };
-
-  const handleReset = () => {
-    localStorage.removeItem(STORAGE_KEY);
-    setItems([]);
-    setProductosFile(null);
-    setLineasContratoFile(null);
-    setStatusMessage(null);
-    setIsError(false);
-  };
-
-  return (
-    <div className="p-6 space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h2 className="text-2xl font-bold tracking-tight">Sincronización Base</h2>
-          <p className="text-sm text-muted-foreground">
-            Productos de Servicio frente a Lista Líneas de Contrato.
-          </p>
-        </div>
-        <span className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-muted text-foreground">
-          {items.length} equipos con contrato
+    XLSX.writeFile(libro, `Equipos_Con_Contrato_${new Date().toISOString().slice(0, 10)}.xlsx`); };  const handleReset = () => { localStorage.removeItem(STORAGE_CONTRATOS_KEY); localStorage.removeItem(STORAGE_PLANIFICACION_KEY); window.dispatchEvent(new Event('mantenim-sync-updated')); setEquipos([]); setProductosFile(null); setLineasContratoFile(null); setStatusMessage(null); setIsError(false); };  return ( <div className="p-6 space-y-6"> <div className="flex flex-wrap items-center justify-between gap-2"> <div> <h2 className="text-2xl font-bold tracking-tight">Sincronización</h2> <p className="text-sm text-muted-foreground"> Cruza <strong>Productos de Servicio</strong> contra <strong>Lista Líneas de Contrato</strong> y envía los equipos con contrato a <strong>Planificación / Revisiones</strong>. </p> </div> <span className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-100 text-emerald-900"> {equipos.length > 0 ? `${equipos.length} equipos con contrato sincronizados`
+            : 'Sin sincronizar'}
         </span>
       </div>
 
@@ -381,118 +374,4 @@ export function SyncView() {
 
           <div
             onClick={() => lineasRef.current?.click()}
-            className={`p-4 border rounded-lg flex items-center justify-between cursor-pointer ${
-              lineasContratoFile ? 'bg-emerald-50/50 border-emerald-300' : 'bg-muted/20 border-dashed'
-            }`}
-          >
-            <input
-              ref={lineasRef}
-              type="file"
-              accept=".xlsx,.xls"
-              className="hidden"
-              onChange={(e) => {
-                if (e.target.files?.[0]) {
-                  setLineasContratoFile(e.target.files[0]);
-                  setStatusMessage(null);
-                }
-              }}
-            />
-            <div className="flex items-center gap-3 truncate">
-              <FileSpreadsheet className="w-5 h-5 text-emerald-700 shrink-0" />
-              <div className="truncate">
-                <p className="text-xs font-bold uppercase">Lista Líneas de Contrato</p>
-                <p className="text-xs text-muted-foreground truncate">
-                  {lineasContratoFile ? lineasContratoFile.name : 'Sin seleccionar'}
-                </p>
-              </div>
-            </div>
-            {lineasContratoFile && <CheckCircle2 className="w-5 h-5 text-emerald-700 shrink-0" />}
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-3 pt-2 border-t">
-          <button
-            type="button"
-            disabled={loading || !productosFile || !lineasContratoFile}
-            onClick={handleProcesar}
-            className="px-5 py-2.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 text-sm font-medium flex items-center gap-2 cursor-pointer"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            {loading ? 'Procesando...' : 'Procesar'}
-          </button>
-
-          {items.length > 0 && (
-            <button
-              type="button"
-              onClick={handleDescargarExcel}
-              className="px-4 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium flex items-center gap-2 cursor-pointer"
-            >
-              <Download className="w-4 h-4" /> Descargar Excel
-            </button>
-          )}
-
-          {(items.length > 0 || productosFile || lineasContratoFile) && (
-            <button
-              type="button"
-              onClick={handleReset}
-              className="px-3.5 py-2.5 bg-secondary text-secondary-foreground rounded-lg hover:bg-secondary/80 text-sm font-medium flex items-center gap-1.5 cursor-pointer"
-            >
-              <Trash2 className="w-4 h-4" /> Vaciar
-            </button>
-          )}
-        </div>
-
-        {statusMessage && (
-          <div
-            className={`p-4 rounded-lg border text-sm font-medium flex items-center gap-2.5 ${
-              isError
-                ? 'bg-destructive/10 text-destructive border-destructive/30'
-                : 'bg-emerald-50 text-emerald-900 border-emerald-200'
-            }`}
-          >
-            {isError ? <AlertCircle className="w-5 h-5 shrink-0" /> : <CheckCircle2 className="w-5 h-5 shrink-0" />}
-            <span>{statusMessage}</span>
-          </div>
-        )}
-      </div>
-
-      {items.length > 0 && (
-        <div className="bg-card border rounded-xl shadow-sm overflow-hidden">
-          <div className="px-4 py-3 border-b bg-muted/30 text-xs font-semibold text-muted-foreground">
-            Mostrando hasta 100 filas de {items.length} equipos con contrato
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-sm">
-              <thead>
-                <tr className="bg-muted/50 border-b text-xs uppercase text-muted-foreground">
-                  <th className="p-3">Nº Prod. Servicio</th>
-                  <th className="p-3">Nº Contrato</th>
-                  <th className="p-3">Nº Serie</th>
-                  <th className="p-3">Modelo</th>
-                  <th className="p-3">Sucursal</th>
-                  <th className="p-3">Cliente Propietario</th>
-                  <th className="p-3">Cliente Ubicación</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {items.slice(0, 100).map((row, index) => (
-                  <tr key={`${row.nProductoServicio}_${index}`} className="hover:bg-muted/20">
-                    <td className="p-3 font-medium">{row.nProductoServicio}</td>
-                    <td className="p-3 font-mono text-xs font-semibold">{row.nContrato}</td>
-                    <td className="p-3 text-muted-foreground">{row.nSerie}</td>
-                    <td className="p-3">{row.modelo}</td>
-                    <td className="p-3">{row.sucursal}</td>
-                    <td className="p-3">{row.clientePropietario}</td>
-                    <td className="p-3">{row.clienteUbicacion}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-export default SyncView;
+            className={`p-4 border rounded-lg flex items
