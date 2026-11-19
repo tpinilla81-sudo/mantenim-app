@@ -2,12 +2,70 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import * as XLSX from 'xlsx';
-import { Search, Download, X, ChevronLeft, ChevronRight } from 'lucide-react';
-import { EquipoContratoSync } from './sync-view';
+import {
+  Search,
+  Download,
+  X,
+  ChevronLeft,
+  ChevronRight,
+  RefreshCw,
+} from 'lucide-react';
+import {
+  EquipoContratoSync,
+  STORAGE_CONTRATOS_KEY,
+  STORAGE_PLANIFICACION_KEY,
+  SYNC_UPDATED_EVENT,
+} from './sync-view';
 
-const STORAGE_CONTRATOS_KEY = 'mantenim_equipos_contrato';
-const STORAGE_PLANIFICACION_KEY = 'mantenim_planificacion_data';
 const PAGE_SIZE = 50;
+
+function normalizarFila(raw: any, index: number): EquipoContratoSync {
+  const nProd = String(
+    raw?.['Nº prod. servicio'] ??
+      raw?.nProductoServicio ??
+      raw?.producto ??
+      raw?.prod ??
+      ''
+  ).trim();
+
+  const nContrato = String(
+    raw?.['Nº Contrato'] ??
+      raw?.nContrato ??
+      raw?.contrato ??
+      ''
+  ).trim();
+
+  const origenRaw = String(raw?.['Origen Contrato'] ?? raw?.origenContrato ?? '').trim();
+  const origenContrato: EquipoContratoSync['Origen Contrato'] =
+    origenRaw === 'Ambos' || origenRaw === 'Producto de Servicio'
+      ? origenRaw
+      : 'Línea de Contrato';
+
+  return {
+    'Nº prod. servicio': nProd || '-',
+    'Nº Contrato': nContrato || '-',
+    'Origen Contrato': origenContrato,
+    'Nº Serie': String(raw?.['Nº Serie'] ?? raw?.nSerie ?? raw?.serie ?? 'N/A').trim() || 'N/A',
+    'Modelo': String(raw?.['Modelo'] ?? raw?.modelo ?? 'N/A').trim() || 'N/A',
+    'Sucursal': String(raw?.['Sucursal'] ?? raw?.sucursal ?? 'N/A').trim() || 'N/A',
+    'Cliente Propietario':
+      String(
+        raw?.['Cliente Propietario'] ??
+          raw?.['Nombre Cliente Propietario'] ??
+          raw?.clientePropietario ??
+          'N/A'
+      ).trim() || 'N/A',
+    'Cliente Ubicación':
+      String(
+        raw?.['Cliente Ubicación'] ??
+          raw?.['Nombre Cliente Ubicación'] ??
+          raw?.clienteUbicacion ??
+          'N/A'
+      ).trim() || 'N/A',
+    'Tipo Registro': 'Contratado',
+    idUnico: String(raw?.idUnico ?? `${index}_${nProd}`).trim(),
+  };
+}
 
 export function PlanificacionView() {
   const [equipos, setEquipos] = useState<EquipoContratoSync[]>([]);
@@ -27,31 +85,48 @@ export function PlanificacionView() {
       const raw =
         localStorage.getItem(STORAGE_CONTRATOS_KEY) ||
         localStorage.getItem(STORAGE_PLANIFICACION_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-          setEquipos(parsed);
-          setPage(1);
-        } else {
-          setEquipos([]);
-        }
+
+      if (!raw) {
+        setEquipos([]);
+        return;
+      }
+
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        const normalizados = parsed
+          .map((item, i) => normalizarFila(item, i))
+          .filter((row) => row['Nº prod. servicio'] !== '-' && row['Nº Contrato'] !== '-');
+        setEquipos(normalizados);
+        setPage(1);
       } else {
         setEquipos([]);
       }
     } catch (err) {
-      console.error('Error cargando planificación:', err);
+      console.error('Error cargando equipos en Planificación / Revisiones:', err);
       setEquipos([]);
     }
   };
 
   useEffect(() => {
     cargarDatos();
-    const onStorageChange = () => cargarDatos();
-    window.addEventListener('storage', onStorageChange);
-    window.addEventListener('mantenim-sync-updated', onStorageChange);
+
+    const handleSyncUpdate = () => cargarDatos();
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        cargarDatos();
+      }
+    };
+
+    window.addEventListener('storage', handleSyncUpdate);
+    window.addEventListener(SYNC_UPDATED_EVENT, handleSyncUpdate);
+    window.addEventListener('focus', handleSyncUpdate);
+    document.addEventListener('visibilitychange', handleVisibility);
+
     return () => {
-      window.removeEventListener('storage', onStorageChange);
-      window.removeEventListener('mantenim-sync-updated', onStorageChange);
+      window.removeEventListener('storage', handleSyncUpdate);
+      window.removeEventListener(SYNC_UPDATED_EVENT, handleSyncUpdate);
+      window.removeEventListener('focus', handleSyncUpdate);
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, []);
 
@@ -59,66 +134,52 @@ export function PlanificacionView() {
     return equipos.filter((item) => {
       if (
         filtroProd.trim() &&
-        !String(item['Nº prod. servicio'] ?? '')
-          .toLowerCase()
-          .includes(filtroProd.trim().toLowerCase())
+        !item['Nº prod. servicio'].toLowerCase().includes(filtroProd.trim().toLowerCase())
       ) {
         return false;
       }
       if (
         filtroContrato.trim() &&
-        !String(item['Nº Contrato'] ?? '')
-          .toLowerCase()
-          .includes(filtroContrato.trim().toLowerCase())
+        !item['Nº Contrato'].toLowerCase().includes(filtroContrato.trim().toLowerCase())
       ) {
         return false;
       }
       if (
         filtroSerie.trim() &&
-        !String(item['Nº Serie'] ?? '')
-          .toLowerCase()
-          .includes(filtroSerie.trim().toLowerCase())
+        !item['Nº Serie'].toLowerCase().includes(filtroSerie.trim().toLowerCase())
       ) {
         return false;
       }
       if (
         filtroModelo.trim() &&
-        !String(item['Modelo'] ?? '')
-          .toLowerCase()
-          .includes(filtroModelo.trim().toLowerCase())
+        !item['Modelo'].toLowerCase().includes(filtroModelo.trim().toLowerCase())
       ) {
         return false;
       }
       if (
         filtroSucursal.trim() &&
-        !String(item['Sucursal'] ?? '')
-          .toLowerCase()
-          .includes(filtroSucursal.trim().toLowerCase())
+        !item['Sucursal'].toLowerCase().includes(filtroSucursal.trim().toLowerCase())
       ) {
         return false;
       }
       if (
         filtroPropietario.trim() &&
-        !String(item['Cliente Propietario'] ?? '')
-          .toLowerCase()
-          .includes(filtroPropietario.trim().toLowerCase())
+        !item['Cliente Propietario'].toLowerCase().includes(filtroPropietario.trim().toLowerCase())
       ) {
         return false;
       }
       if (
         filtroUbicacion.trim() &&
-        !String(item['Cliente Ubicación'] ?? '')
-          .toLowerCase()
-          .includes(filtroUbicacion.trim().toLowerCase())
+        !item['Cliente Ubicación'].toLowerCase().includes(filtroUbicacion.trim().toLowerCase())
       ) {
         return false;
       }
       if (filtroGlobal.trim()) {
         const q = filtroGlobal.trim().toLowerCase();
-        const matchAny = Object.entries(item)
+        const coincide = Object.entries(item)
           .filter(([k]) => k !== 'idUnico')
           .some(([, val]) => String(val ?? '').toLowerCase().includes(q));
-        if (!matchAny) return false;
+        if (!coincide) return false;
       }
       return true;
     });
@@ -194,10 +255,17 @@ export function PlanificacionView() {
             Equipos con contrato sincronizados desde <strong>Productos de Servicio</strong> y <strong>Lista Líneas de Contrato</strong>.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-100 text-emerald-900">
             {filtrados.length} filtrados / {equipos.length} total
           </span>
+          <button
+            type="button"
+            onClick={cargarDatos}
+            className="px-3 py-1.5 bg-secondary text-secondary-foreground rounded-lg hover:bg-secondary/80 text-xs font-medium flex items-center gap-1.5 cursor-pointer"
+          >
+            <RefreshCw className="w-3.5 h-3.5" /> Recargar
+          </button>
           {filtrados.length > 0 && (
             <button
               type="button"
@@ -211,11 +279,18 @@ export function PlanificacionView() {
       </div>
 
       {equipos.length === 0 ? (
-        <div className="bg-card border rounded-xl p-10 text-center space-y-2 shadow-sm">
-          <p className="text-sm font-semibold">No hay equipos sincronizados todavía</p>
+        <div className="bg-card border rounded-xl p-10 text-center space-y-3 shadow-sm">
+          <p className="text-sm font-semibold">No hay equipos con contrato cargados</p>
           <p className="text-xs text-muted-foreground">
-            Ve a <strong>Sincronización</strong>, carga <strong>Productos de Servicio</strong> y <strong>Lista Líneas de Contrato</strong>, y pulsa <strong>Sincronizar</strong>.
+            Sincroniza primero <strong>Productos de Servicio</strong> y <strong>Lista Líneas de Contrato</strong> en la pestaña de Sincronización.
           </p>
+          <button
+            type="button"
+            onClick={cargarDatos}
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-xs font-medium inline-flex items-center gap-1.5 cursor-pointer"
+          >
+            <RefreshCw className="w-3.5 h-3.5" /> Comprobar datos guardados
+          </button>
         </div>
       ) : (
         <div className="bg-card border rounded-xl shadow-sm overflow-hidden">
@@ -333,9 +408,14 @@ export function PlanificacionView() {
                   </tr>
                 ) : (
                   visibleRows.map((row, idx) => (
-                    <tr key={row.idUnico || `${row['Nº prod. servicio']}_${idx}`} className="hover:bg-muted/20">
+                    <tr
+                      key={row.idUnico || `${row['Nº prod. servicio']}_${idx}`}
+                      className="hover:bg-muted/20"
+                    >
                       <td className="p-3 font-semibold">{row['Nº prod. servicio']}</td>
-                      <td className="p-3 font-mono text-xs font-bold text-primary">{row['Nº Contrato']}</td>
+                      <td className="p-3 font-mono text-xs font-bold text-primary">
+                        {row['Nº Contrato']}
+                      </td>
                       <td className="p-3 text-muted-foreground">{row['Nº Serie']}</td>
                       <td className="p-3">{row['Modelo']}</td>
                       <td className="p-3">{row['Sucursal']}</td>
