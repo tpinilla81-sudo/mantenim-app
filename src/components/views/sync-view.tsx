@@ -4,11 +4,17 @@ import React, { useState, useRef, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { Upload, FileSpreadsheet, CheckCircle2, AlertCircle, Download, RefreshCw } from 'lucide-react';
 import { calcularProximaRevisionContrato, calcularProximaRevisionPropia } from '@/lib/maintenance-rules';
+import {
+  calcularCrucesPedidosRegistrados,
+  CrucePedidoResultado,
+} from '@/lib/pedido-producto-matcher';
 
 interface RevisionReal {
   fecha: Date;
   horas: number;
 }
+
+const STORAGE_CRUCES_KEY = 'mantenim_cruces_pedidos_2025_2026';
 
 export function SyncView() {
   const [loading, setLoading] = useState(false);
@@ -17,6 +23,7 @@ export function SyncView() {
   const [isDragging, setIsDragging] = useState(false);
   const [processedData, setProcessedData] = useState<any[]>([]);
   const [hasStoredData, setHasStoredData] = useState(false);
+  const [crucesData, setCrucesData] = useState<CrucePedidoResultado[]>([]);
 
   const [files, setFiles] = useState<{
     revisiones: File | null;
@@ -45,6 +52,18 @@ export function SyncView() {
         }
       } catch (e) {
         console.error('Error leyendo datos guardados', e);
+      }
+    }
+
+    const savedCruces = localStorage.getItem(STORAGE_CRUCES_KEY);
+    if (savedCruces) {
+      try {
+        const parsedCruces = JSON.parse(savedCruces);
+        if (Array.isArray(parsedCruces)) {
+          setCrucesData(parsedCruces);
+        }
+      } catch (e) {
+        console.error('Error leyendo cruces guardados', e);
       }
     }
   }, []);
@@ -115,7 +134,8 @@ export function SyncView() {
               rowStr.includes('servicio') ||
               rowStr.includes('tarea') ||
               rowStr.includes('serie') ||
-              rowStr.includes('fecha')
+              rowStr.includes('fecha') ||
+              rowStr.includes('pedido')
             ) {
               headerRowIndex = i;
               break;
@@ -214,13 +234,6 @@ export function SyncView() {
     );
   };
 
-  /**
-   * Extrae de Tareas de Servicio las revisiones reales por equipo:
-   * - Columna P (índice 15): Nº de producto de servicio / máquina
-   * - Columna S (índice 18): Tipo pedido servicio ('MANTPREV', o 'MANTCORR' si Columna T indica 'REVISION')
-   * - Columna T (índice 19): Contraste de revisión ('REVISION')
-   * - Columna X (índice 23): Fecha en que se hizo
-   */
   const parseTareasServicio = (rawRows: any[][]): Map<string, RevisionReal[]> => {
     const map = new Map<string, RevisionReal[]>();
 
@@ -228,10 +241,10 @@ export function SyncView() {
       const row = rawRows[i];
       if (!Array.isArray(row) || row.length <= 15) continue;
 
-      const prodId = String(row[15] ?? '').trim(); // Columna P
-      const tipoPedido = String(row[18] ?? '').trim().toUpperCase(); // Columna S
-      const contrasteDesc = String(row[19] ?? '').trim().toUpperCase(); // Columna T
-      const rawFecha = row.length > 23 ? row[23] : null; // Columna X
+      const prodId = String(row[15] ?? '').trim();
+      const tipoPedido = String(row[18] ?? '').trim().toUpperCase();
+      const contrasteDesc = String(row[19] ?? '').trim().toUpperCase();
+      const rawFecha = row.length > 23 ? row[23] : null;
 
       if (!prodId || prodId.toUpperCase().includes('PROD') || prodId.toUpperCase().includes('PRODUCTO')) {
         continue;
@@ -247,12 +260,10 @@ export function SyncView() {
       const fecha = parseExcelDate(rawFecha);
       if (!fecha) continue;
 
-      // Buscamos si alguna celda de la fila trae horas de contador
       let horasFila = 0;
       for (let c = 0; c < row.length; c++) {
         const cellVal = row[c];
         if (typeof cellVal === 'number' && c !== 15 && c !== 18 && c !== 19 && c !== 23 && cellVal > 0 && cellVal < 200000) {
-          // Solo si parece contador de horas y no fecha
           horasFila = Math.max(horasFila, cellVal);
         }
       }
@@ -277,21 +288,20 @@ export function SyncView() {
     setIsError(false);
 
     try {
-      const [revData, prodData, lineasContratoData, tareasRawRows] = await Promise.all([
+      const [revData, prodData, lineasContratoData, tareasRawRows, pedidosRegData] = await Promise.all([
         readFileAsJSON(files.revisiones),
         readFileAsJSON(files.productos),
         readFileAsJSON(files.lineasContrato),
         readSheetAsRows(files.tareasServicio),
+        files.pedidosReg ? readFileAsJSON(files.pedidosReg) : Promise.resolve([]),
       ]);
 
       if (prodData.length === 0) {
         throw new Error('El fichero de Productos de Servicio está vacío.');
       }
 
-      // 1. Revisiones reales desde Tareas de Servicio (Col P, Col S/T, Col X)
       const revisionesPorEquipo = parseTareasServicio(tareasRawRows);
 
-      // 2. Mapa de Revisiones (contrato y revisiones anuales)
       const revisionesMap = new Map<string, { contrato: string; numRevisionesAnuales: number }>();
       revData.forEach((rev) => {
         let prodServ = '';
@@ -322,7 +332,6 @@ export function SyncView() {
         }
       });
 
-      // 3. Mapa de Líneas de Contrato (excluyendo Cód. grupo contrato)
       const lineasMap = new Map<string, { contrato: string; sucursal: string }>();
       lineasContratoData.forEach((linea) => {
         let prodServ = '';
@@ -349,7 +358,6 @@ export function SyncView() {
         }
       });
 
-      // 4. Procesamiento unificado de Productos de Servicio
       const resultadoFinal: any[] = [];
       const currentYear = new Date().getFullYear();
       let equiposConUltimaRev = 0;
@@ -468,12 +476,22 @@ export function SyncView() {
         }
       });
 
+      const { cruces, asignados, sinCruce } = calcularCrucesPedidosRegistrados({
+        pedidosRegData,
+        prodData,
+        lineasContratoData,
+        parseDateFn: parseExcelDate,
+      });
+
       localStorage.setItem('mantenim_planificacion_data', JSON.stringify(resultadoFinal));
+      localStorage.setItem(STORAGE_CRUCES_KEY, JSON.stringify(cruces));
+
       setProcessedData(resultadoFinal);
+      setCrucesData(cruces);
       setHasStoredData(true);
       setIsError(false);
       setResultMessage(
-        `Procesados ${resultadoFinal.length} equipos (${equiposConUltimaRev} con última revisión encontrada en Tareas de Servicio).`
+        `Procesados ${resultadoFinal.length} equipos (${equiposConUltimaRev} con última revisión). Cruces pedidos 2025/2026: ${cruces.length} total (${asignados.length} asignados, ${sinCruce.length} sin cruce automático).`
       );
     } catch (error: any) {
       setIsError(true);
@@ -481,6 +499,18 @@ export function SyncView() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const exportCrucesToExcel = (rows: CrucePedidoResultado[], suffix: string) => {
+    if (rows.length === 0) return;
+    const cleanRows = rows.map(({ _asignado, ...rest }) => ({
+      ...rest,
+      Estado_Cruce: _asignado ? 'Asignado' : 'Sin cruce automático',
+    }));
+    const worksheet = XLSX.utils.json_to_sheet(cleanRows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, suffix.slice(0, 31));
+    XLSX.writeFile(workbook, `Cruces_Pedidos_2025_2026_${suffix}_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
   const handleDownloadExcel = () => {
@@ -499,6 +529,9 @@ export function SyncView() {
     files.revisiones && files.productos && files.lineasContrato && files.tareasServicio
   );
 
+  const pedidosAsignados = crucesData.filter((c) => c._asignado);
+  const pedidosSinCruce = crucesData.filter((c) => !c._asignado);
+
   return (
     <div className="space-y-6 p-6">
       <div className="flex items-center justify-between">
@@ -512,7 +545,7 @@ export function SyncView() {
         <div>
           <h3 className="text-lg font-semibold mb-1">Carga de Ficheros</h3>
           <p className="text-sm text-muted-foreground">
-            En Tareas de Servicio se lee el equipo en Columna P, el tipo de pedido en Columna S (contrastado con Columna T = REVISION) y la fecha de ejecución en Columna X.
+            Sube los 5 excels de Business Central para calcular la planificación de revisiones y el cruce de Pedidos de Servicio Registrados (2025/2026).
           </p>
         </div>
 
@@ -544,7 +577,7 @@ export function SyncView() {
             </div>
             <div>
               <p className="text-base font-semibold">
-                {hasStoredData ? 'Arrastra nuevos excels para actualizar' : 'Arrastra los excels aquí'}
+                {hasStoredData ? 'Arrastra nuevos excels para actualizar' : 'Arrastra los 5 excels aquí'}
               </p>
             </div>
           </div>
@@ -578,7 +611,7 @@ export function SyncView() {
             },
             {
               key: 'pedidosReg',
-              label: '5. Pedidos Registrados (opcional)',
+              label: '5. Pedidos de Servicio Registrados',
               file: files.pedidosReg,
               setter: (f: File) => setFiles((p) => ({ ...p, pedidosReg: f })),
             },
@@ -620,7 +653,7 @@ export function SyncView() {
           })}
         </div>
 
-        <div className="flex flex-wrap items-center gap-4 pt-2 border-t">
+        <div className="flex flex-wrap items-center gap-3 pt-2 border-t">
           <button
             type="button"
             disabled={loading || !allAssigned}
@@ -635,12 +668,52 @@ export function SyncView() {
             <button
               type="button"
               onClick={handleDownloadExcel}
-              className="px-5 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium text-sm flex items-center gap-2 cursor-pointer"
+              className="px-4 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-medium text-sm flex items-center gap-2 cursor-pointer"
             >
-              <Download className="w-4 h-4" /> Descargar Excel Actual
+              <Download className="w-4 h-4" /> Descargar Planificación
             </button>
           )}
         </div>
+
+        {crucesData.length > 0 && (
+          <div className="p-4 border rounded-lg bg-muted/20 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h4 className="text-sm font-bold">
+                  Cruce Pedidos de Servicio Registrados ↔ Productos de Servicio (2025 / 2026)
+                </h4>
+                <p className="text-xs text-muted-foreground">
+                  Total 2025/2026: <strong>{crucesData.length}</strong> · Asignados: <strong>{pedidosAsignados.length}</strong> · Sin cruce automático: <strong>{pedidosSinCruce.length}</strong>
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => exportCrucesToExcel(pedidosAsignados, 'Asignados')}
+                  disabled={pedidosAsignados.length === 0}
+                  className="px-3 py-1.5 bg-emerald-700 text-white rounded-md hover:bg-emerald-800 disabled:opacity-40 text-xs font-medium flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" /> Excel Asignados ({pedidosAsignados.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => exportCrucesToExcel(pedidosSinCruce, 'Sin_Cruce')}
+                  disabled={pedidosSinCruce.length === 0}
+                  className="px-3 py-1.5 bg-amber-600 text-white rounded-md hover:bg-amber-700 disabled:opacity-40 text-xs font-medium flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" /> Excel Sin Cruce ({pedidosSinCruce.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => exportCrucesToExcel(crucesData, 'Todos')}
+                  className="px-3 py-1.5 bg-slate-800 text-white rounded-md hover:bg-slate-900 text-xs font-medium flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" /> Excel Todos ({crucesData.length})
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {resultMessage && (
           <div
