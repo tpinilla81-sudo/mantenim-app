@@ -20,6 +20,9 @@ import {
 const PAGE_SIZE = 50;
 
 interface FilaPlanificacion extends EquipoContratoSync {
+  esPropia: boolean;
+  tieneContrato: boolean;
+  revisionesAnuales: number | null;
   'Fecha Última Revisión': string;
   'Fecha Próxima Revisión': string;
 }
@@ -41,7 +44,64 @@ function parseHorasSeguro(val: any): number {
   return isNaN(num) ? 0 : num;
 }
 
-function normalizarFila(raw: any, index: number): FilaPlanificacion {
+function parseBooleano(val: any): boolean {
+  if (typeof val === 'boolean') return val;
+  if (typeof val === 'number') return val !== 0;
+  const s = String(val ?? '').trim().toLowerCase();
+  return s === 'true' || s === 'sí' || s === 'si' || s === '1' || s === 'yes';
+}
+
+function parseFechaDDMMYYYY(fechaStr: string): Date | null {
+  const s = String(fechaStr ?? '').trim();
+  if (!s) return null;
+  const m = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  if (m) {
+    const d = Number(m[1]);
+    const mo = Number(m[2]) - 1;
+    const y = Number(m[3]);
+    const dt = new Date(y, mo, d);
+    if (!isNaN(dt.getTime())) return dt;
+  }
+  const iso = new Date(s);
+  return isNaN(iso.getTime()) ? null : iso;
+}
+
+function formatDDMMYYYY(dt: Date): string {
+  const dd = String(dt.getDate()).padStart(2, '0');
+  const mm = String(dt.getMonth() + 1).padStart(2, '0');
+  const yyyy = dt.getFullYear();
+  return `${dd}/${mm}/${yyyy}`;
+}
+
+function calcularProximaRevision(
+  esPropia: boolean,
+  horas: number,
+  fechaUltimaStr: string,
+  revisionesAnuales: number | null
+): string {
+  // 1. Máquinas propias: revisión cada 1.000 horas
+  if (esPropia) {
+    const hitoHoras = (Math.floor(Math.max(0, horas) / 1000) + 1) * 1000;
+    const restantes = Math.max(0, Math.round(hitoHoras - horas));
+    return `${hitoHoras.toLocaleString('es-ES')} h (faltan ${restantes.toLocaleString('es-ES')} h)`;
+  }
+
+  // 2. Máquinas de cliente con contrato: repartidas en el año según Nº REVISIONES ANUALES
+  const fechaUltima = parseFechaDDMMYYYY(fechaUltimaStr);
+  const revAnuales =
+    revisionesAnuales && revisionesAnuales > 0 ? revisionesAnuales : null;
+
+  if (!fechaUltima || !revAnuales) {
+    return revAnuales ? `${revAnuales}/año (sin última rev.)` : '—';
+  }
+
+  const diasIntervalo = Math.max(1, Math.round(365 / revAnuales));
+  const proxima = new Date(fechaUltima.getTime());
+  proxima.setDate(proxima.getDate() + diasIntervalo);
+  return formatDDMMYYYY(proxima);
+}
+
+function normalizarFila(raw: any, index: number): FilaPlanificacion | null {
   const nProd = String(
     raw?.['Nº prod. servicio'] ??
       raw?.nProductoServicio ??
@@ -57,33 +117,72 @@ function normalizarFila(raw: any, index: number): FilaPlanificacion {
       ''
   ).trim();
 
-  const horasRaw =
+  const esPropia = parseBooleano(
+    raw?.['Es propia'] ?? raw?.esPropia ?? raw?.propia ?? false
+  );
+
+  const tieneContrato =
+    Boolean(nContrato && nContrato !== '-' && nContrato.toUpperCase() !== 'N/A') ||
+    parseBooleano(raw?.tieneContrato ?? false);
+
+  // Quitar máquinas de cliente sin contrato
+  if (!esPropia && !tieneContrato) {
+    return null;
+  }
+
+  const horas = parseHorasSeguro(
     raw?.['Nº de horas'] ??
-    raw?.['Nº horas'] ??
-    raw?.horas ??
-    raw?.contador ??
-    0;
+      raw?.['Nº horas'] ??
+      raw?.horas ??
+      raw?.contador ??
+      0
+  );
 
-  const fechaUltimaRaw =
+  const revRaw =
+    raw?.['Nº REVISIONES ANUALES'] ??
+    raw?.['Nº revisiones anuales'] ??
+    raw?.revisionesAnuales ??
+    null;
+  const revNum = revRaw !== null && revRaw !== '' && !isNaN(Number(revRaw))
+    ? Number(revRaw)
+    : null;
+
+  const fechaUltima = String(
     raw?.['Fecha Última Revisión'] ??
-    raw?.['Fecha última revisión'] ??
-    raw?.['Fecha de la última revisión'] ??
-    raw?.fechaUltimaRevision ??
-    '';
+      raw?.['Fecha última revisión'] ??
+      raw?.['Fecha de la última revisión'] ??
+      raw?.fechaUltimaRevision ??
+      ''
+  ).trim();
 
-  const fechaProximaRaw =
-    raw?.['Fecha Próxima Revisión'] ??
-    raw?.['Fecha próxima revisión'] ??
-    raw?.fechaProximaRevision ??
-    '';
+  const fechaProximaCalculada = calcularProximaRevision(
+    esPropia,
+    horas,
+    fechaUltima,
+    revNum
+  );
+
+  const fechaProxima =
+    fechaProximaCalculada !== '—'
+      ? fechaProximaCalculada
+      : String(
+          raw?.['Fecha Próxima Revisión'] ??
+            raw?.['Fecha próxima revisión'] ??
+            raw?.fechaProximaRevision ??
+            '—'
+        ).trim() || '—';
 
   return {
     'Nº prod. servicio': nProd || '-',
-    'Nº Contrato': nContrato || '-',
-    'Nº Serie': String(raw?.['Nº Serie'] ?? raw?.nSerie ?? raw?.serie ?? 'N/A').trim() || 'N/A',
-    'Modelo': String(raw?.['Modelo'] ?? raw?.modelo ?? 'N/A').trim() || 'N/A',
-    'Nº de horas': parseHorasSeguro(horasRaw),
-    'Sucursal': String(raw?.['Sucursal'] ?? raw?.sucursal ?? 'N/A').trim() || 'N/A',
+    'Nº Contrato': nContrato || (esPropia ? 'PROPIA' : '-'),
+    'Nº Serie':
+      String(raw?.['Nº Serie'] ?? raw?.nSerie ?? raw?.serie ?? 'N/A').trim() ||
+      'N/A',
+    'Modelo':
+      String(raw?.['Modelo'] ?? raw?.modelo ?? 'N/A').trim() || 'N/A',
+    'Nº de horas': horas,
+    'Sucursal':
+      String(raw?.['Sucursal'] ?? raw?.sucursal ?? 'N/A').trim() || 'N/A',
     'Cliente Propietario':
       String(
         raw?.['Cliente Propietario'] ??
@@ -98,8 +197,11 @@ function normalizarFila(raw: any, index: number): FilaPlanificacion {
           raw?.clienteUbicacion ??
           'N/A'
       ).trim() || 'N/A',
-    'Fecha Última Revisión': String(fechaUltimaRaw ?? '').trim(),
-    'Fecha Próxima Revisión': String(fechaProximaRaw ?? '').trim(),
+    esPropia,
+    tieneContrato,
+    revisionesAnuales: revNum,
+    'Fecha Última Revisión': fechaUltima,
+    'Fecha Próxima Revisión': fechaProxima,
     idUnico: String(raw?.idUnico ?? `${index}_${nProd}`).trim(),
   };
 }
@@ -135,7 +237,7 @@ export function PlanificacionView() {
       if (Array.isArray(parsed)) {
         const normalizados = parsed
           .map((item, i) => normalizarFila(item, i))
-          .filter((row) => row['Nº prod. servicio'] !== '-' && row['Nº Contrato'] !== '-');
+          .filter((row): row is FilaPlanificacion => row !== null && row['Nº prod. servicio'] !== '-');
         setEquipos(normalizados);
         setPage(1);
       } else {
@@ -320,7 +422,7 @@ export function PlanificacionView() {
 
   const exportarExcel = () => {
     if (filtrados.length === 0) return;
-    const rowsExport = filtrados.map(({ idUnico, ...rest }) => ({
+    const rowsExport = filtrados.map((rest) => ({
       'Nº Prod. Servicio': rest['Nº prod. servicio'],
       'Nº Contrato': rest['Nº Contrato'],
       'Nº Serie': rest['Nº Serie'],
@@ -334,5 +436,260 @@ export function PlanificacionView() {
     }));
     const ws = XLSX.utils.json_to_sheet(rowsExport);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws,
-                                 
+    XLSX.utils.book_append_sheet(wb, ws, 'Planificacion_Revisiones');
+    XLSX.writeFile(wb, `Planificacion_Revisiones_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
+  return (
+    <div className="p-6 space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight">Planificación / Revisiones</h2>
+          <p className="text-sm text-muted-foreground">
+            Máquinas propias (cada 1.000 h) y máquinas de cliente con contrato (reparto anual de revisiones), excluyendo clientes sin contrato.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-100 text-emerald-900">
+            {filtrados.length} filtrados / {equipos.length} total
+          </span>
+          <button
+            type="button"
+            onClick={cargarDatos}
+            className="px-3 py-1.5 bg-secondary text-secondary-foreground rounded-lg hover:bg-secondary/80 text-xs font-medium flex items-center gap-1.5 cursor-pointer"
+          >
+            <RefreshCw className="w-3.5 h-3.5" /> Recargar
+          </button>
+          {filtrados.length > 0 && (
+            <button
+              type="button"
+              onClick={exportarExcel}
+              className="px-3.5 py-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-xs font-medium flex items-center gap-1.5 cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5" /> Exportar Excel
+            </button>
+          )}
+        </div>
+      </div>
+
+      {equipos.length === 0 ? (
+        <div className="bg-card border rounded-xl p-10 text-center space-y-3 shadow-sm">
+          <p className="text-sm font-semibold">No hay máquinas propias ni de cliente con contrato cargadas</p>
+          <p className="text-xs text-muted-foreground">
+            Sincroniza los ficheros en la pestaña de Sincronización para cargar los datos.
+          </p>
+          <button
+            type="button"
+            onClick={cargarDatos}
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-xs font-medium inline-flex items-center gap-1.5 cursor-pointer"
+          >
+            <RefreshCw className="w-3.5 h-3.5" /> Comprobar datos guardados
+          </button>
+        </div>
+      ) : (
+        <div className="bg-card border rounded-xl shadow-sm overflow-hidden">
+          <div className="p-4 border-b bg-muted/30 flex flex-wrap items-center justify-between gap-3">
+            <p className="text-xs font-semibold text-muted-foreground">
+              Mostrando {visibleRows.length} de {filtrados.length} filtrados / {equipos.length} total
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-1.5 bg-background border rounded-md px-2.5 py-1.5 text-xs">
+                <Search className="w-3.5 h-3.5 text-muted-foreground" />
+                <input
+                  type="text"
+                  placeholder="Buscar en toda la tabla..."
+                  value={filtroGlobal}
+                  onChange={(e) => setFiltroGlobal(e.target.value)}
+                  className="bg-transparent focus:outline-none w-44"
+                />
+              </div>
+              {hayFiltros && (
+                <button
+                  type="button"
+                  onClick={limpiarFiltros}
+                  className="px-2.5 py-1.5 bg-secondary text-secondary-foreground rounded-md text-xs font-medium flex items-center gap-1 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" /> Limpiar filtros
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-sm">
+              <thead>
+                <tr className="bg-muted/50 border-b text-xs uppercase text-muted-foreground">
+                  <th className="p-3">Nº Prod. Servicio</th>
+                  <th className="p-3">Nº Contrato</th>
+                  <th className="p-3">Nº Serie</th>
+                  <th className="p-3">Modelo</th>
+                  <th className="p-3 text-right">Nº de horas</th>
+                  <th className="p-3">Sucursal</th>
+                  <th className="p-3">Cliente Propietario</th>
+                  <th className="p-3">Nombre Cliente Ubicación</th>
+                  <th className="p-3">Fecha Última Revisión</th>
+                  <th className="p-3">Fecha Próxima Revisión</th>
+                </tr>
+                <tr className="bg-muted/20 border-b">
+                  <th className="p-2">
+                    <input
+                      type="text"
+                      placeholder="Filtrar prod..."
+                      value={filtroProd}
+                      onChange={(e) => setFiltroProd(e.target.value)}
+                      className="w-full px-2 py-1 bg-background border rounded text-xs font-normal focus:outline-none"
+                    />
+                  </th>
+                  <th className="p-2">
+                    <input
+                      type="text"
+                      placeholder="Filtrar contrato..."
+                      value={filtroContrato}
+                      onChange={(e) => setFiltroContrato(e.target.value)}
+                      className="w-full px-2 py-1 bg-background border rounded text-xs font-normal focus:outline-none"
+                    />
+                  </th>
+                  <th className="p-2">
+                    <input
+                      type="text"
+                      placeholder="Filtrar serie..."
+                      value={filtroSerie}
+                      onChange={(e) => setFiltroSerie(e.target.value)}
+                      className="w-full px-2 py-1 bg-background border rounded text-xs font-normal focus:outline-none"
+                    />
+                  </th>
+                  <th className="p-2">
+                    <input
+                      type="text"
+                      placeholder="Filtrar modelo..."
+                      value={filtroModelo}
+                      onChange={(e) => setFiltroModelo(e.target.value)}
+                      className="w-full px-2 py-1 bg-background border rounded text-xs font-normal focus:outline-none"
+                    />
+                  </th>
+                  <th className="p-2">
+                    <input
+                      type="text"
+                      placeholder="Horas..."
+                      value={filtroHoras}
+                      onChange={(e) => setFiltroHoras(e.target.value)}
+                      className="w-full px-2 py-1 bg-background border rounded text-xs font-normal text-right focus:outline-none"
+                    />
+                  </th>
+                  <th className="p-2">
+                    <input
+                      type="text"
+                      placeholder="Sucursal..."
+                      value={filtroSucursal}
+                      onChange={(e) => setFiltroSucursal(e.target.value)}
+                      className="w-full px-2 py-1 bg-background border rounded text-xs font-normal focus:outline-none"
+                    />
+                  </th>
+                  <th className="p-2">
+                    <input
+                      type="text"
+                      placeholder="Cliente propietario..."
+                      value={filtroPropietario}
+                      onChange={(e) => setFiltroPropietario(e.target.value)}
+                      className="w-full px-2 py-1 bg-background border rounded text-xs font-normal focus:outline-none"
+                    />
+                  </th>
+                  <th className="p-2">
+                    <input
+                      type="text"
+                      placeholder="Nombre cliente ubicación..."
+                      value={filtroUbicacion}
+                      onChange={(e) => setFiltroUbicacion(e.target.value)}
+                      className="w-full px-2 py-1 bg-background border rounded text-xs font-normal focus:outline-none"
+                    />
+                  </th>
+                  <th className="p-2">
+                    <input
+                      type="text"
+                      placeholder="DD/MM/YYYY..."
+                      value={filtroFechaUltima}
+                      onChange={(e) => setFiltroFechaUltima(e.target.value)}
+                      className="w-full px-2 py-1 bg-background border rounded text-xs font-normal focus:outline-none"
+                    />
+                  </th>
+                  <th className="p-2">
+                    <input
+                      type="text"
+                      placeholder="Fecha o horas..."
+                      value={filtroFechaProxima}
+                      onChange={(e) => setFiltroFechaProxima(e.target.value)}
+                      className="w-full px-2 py-1 bg-background border rounded text-xs font-normal focus:outline-none"
+                    />
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {visibleRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={10} className="p-6 text-center text-muted-foreground text-xs">
+                      No hay equipos que coincidan con los filtros aplicados.
+                    </td>
+                  </tr>
+                ) : (
+                  visibleRows.map((row, idx) => (
+                    <tr
+                      key={row.idUnico || `${row['Nº prod. servicio']}_${idx}`}
+                      className="hover:bg-muted/20"
+                    >
+                      <td className="p-3 font-semibold">{row['Nº prod. servicio']}</td>
+                      <td className="p-3 font-mono text-xs font-bold text-primary">
+                        {row['Nº Contrato']}
+                      </td>
+                      <td className="p-3 text-muted-foreground">{row['Nº Serie']}</td>
+                      <td className="p-3">{row['Modelo']}</td>
+                      <td className="p-3 text-right font-mono text-xs font-semibold">
+                        {row['Nº de horas'].toLocaleString('es-ES')}
+                      </td>
+                      <td className="p-3">{row['Sucursal']}</td>
+                      <td className="p-3">{row['Cliente Propietario']}</td>
+                      <td className="p-3">{row['Nombre Cliente Ubicación']}</td>
+                      <td className="p-3 font-mono text-xs">
+                        {row['Fecha Última Revisión'] || '—'}
+                      </td>
+                      <td className="p-3 font-mono text-xs font-medium">
+                        {row['Fecha Próxima Revisión'] || '—'}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {filtrados.length > PAGE_SIZE && (
+            <div className="px-4 py-3 border-t bg-muted/20 flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">
+                Página <strong>{currentPage}</strong> de <strong>{totalPages}</strong>
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={currentPage <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  className="px-2.5 py-1 border rounded bg-background disabled:opacity-40 flex items-center gap-1 cursor-pointer"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" /> Anterior
+                </button>
+                <button
+                  type="button"
+                  disabled={currentPage >= totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  className="px-2.5 py-1 border rounded bg-background disabled:opacity-40 flex items-center gap-1 cursor-pointer"
+                >
+                  Siguiente <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default PlanificacionView;
