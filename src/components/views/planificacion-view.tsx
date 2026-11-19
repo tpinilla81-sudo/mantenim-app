@@ -19,6 +19,23 @@ import {
 
 const PAGE_SIZE = 50;
 
+function parseHorasSeguro(val: any): number {
+  if (typeof val === 'number') return isNaN(val) ? 0 : val;
+  if (val === undefined || val === null) return 0;
+  const raw = String(val).trim();
+  if (!raw) return 0;
+  let cleaned = raw.replace(/\s+/g, '');
+  if (cleaned.includes(',') && cleaned.includes('.')) {
+    cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+  } else if (cleaned.includes(',')) {
+    cleaned = cleaned.replace(',', '.');
+  } else if (/^\d{1,3}(\.\d{3})+$/.test(cleaned)) {
+    cleaned = cleaned.replace(/\./g, '');
+  }
+  const num = Number(cleaned);
+  return isNaN(num) ? 0 : num;
+}
+
 function normalizarFila(raw: any, index: number): EquipoContratoSync {
   const nProd = String(
     raw?.['Nº prod. servicio'] ??
@@ -35,19 +52,17 @@ function normalizarFila(raw: any, index: number): EquipoContratoSync {
       ''
   ).trim();
 
-  const origenRaw = String(raw?.['Origen Contrato'] ?? raw?.origenContrato ?? '').trim();
-  const origenContrato: EquipoContratoSync['Origen Contrato'] =
-    origenRaw === 'Ambos' || origenRaw === 'Producto de Servicio'
-      ? origenRaw
-      : 'Línea de Contrato';
+  const horasRaw =
+    raw?.['Nº de horas'] ??
+    raw?.['Nº horas'] ??
+    raw?.horas ??
+    raw?.contador ??
+    0;
 
   return {
     'Nº prod. servicio': nProd || '-',
     'Nº Contrato': nContrato || '-',
-    'Origen Contrato': origenContrato,
-    'Nº Serie': String(raw?.['Nº Serie'] ?? raw?.nSerie ?? raw?.serie ?? 'N/A').trim() || 'N/A',
-    'Modelo': String(raw?.['Modelo'] ?? raw?.modelo ?? 'N/A').trim() || 'N/A',
-    'Sucursal': String(raw?.['Sucursal'] ?? raw?.sucursal ?? 'N/A').trim() || 'N/A',
+    'Nº de horas': parseHorasSeguro(horasRaw),
     'Cliente Propietario':
       String(
         raw?.['Cliente Propietario'] ??
@@ -55,14 +70,16 @@ function normalizarFila(raw: any, index: number): EquipoContratoSync {
           raw?.clientePropietario ??
           'N/A'
       ).trim() || 'N/A',
-    'Cliente Ubicación':
+    'Nombre Cliente Ubicación':
       String(
-        raw?.['Cliente Ubicación'] ??
-          raw?.['Nombre Cliente Ubicación'] ??
+        raw?.['Nombre Cliente Ubicación'] ??
+          raw?.['Cliente Ubicación'] ??
           raw?.clienteUbicacion ??
           'N/A'
       ).trim() || 'N/A',
-    'Tipo Registro': 'Contratado',
+    'Nº Serie': String(raw?.['Nº Serie'] ?? raw?.nSerie ?? raw?.serie ?? 'N/A').trim() || 'N/A',
+    'Modelo': String(raw?.['Modelo'] ?? raw?.modelo ?? 'N/A').trim() || 'N/A',
+    'Sucursal': String(raw?.['Sucursal'] ?? raw?.sucursal ?? 'N/A').trim() || 'N/A',
     idUnico: String(raw?.idUnico ?? `${index}_${nProd}`).trim(),
   };
 }
@@ -74,11 +91,12 @@ export function PlanificacionView() {
   const [filtroGlobal, setFiltroGlobal] = useState('');
   const [filtroProd, setFiltroProd] = useState('');
   const [filtroContrato, setFiltroContrato] = useState('');
+  const [filtroHoras, setFiltroHoras] = useState('');
+  const [filtroPropietario, setFiltroPropietario] = useState('');
+  const [filtroUbicacion, setFiltroUbicacion] = useState('');
   const [filtroSerie, setFiltroSerie] = useState('');
   const [filtroModelo, setFiltroModelo] = useState('');
   const [filtroSucursal, setFiltroSucursal] = useState('');
-  const [filtroPropietario, setFiltroPropietario] = useState('');
-  const [filtroUbicacion, setFiltroUbicacion] = useState('');
 
   const cargarDatos = () => {
     try {
@@ -144,6 +162,31 @@ export function PlanificacionView() {
       ) {
         return false;
       }
+      if (filtroHoras.trim()) {
+        const horasFormateadas = item['Nº de horas'].toLocaleString('es-ES');
+        const horasCrudas = String(item['Nº de horas']);
+        const qHoras = filtroHoras.trim().toLowerCase();
+        if (
+          !horasCrudas.toLowerCase().includes(qHoras) &&
+          !horasFormateadas.toLowerCase().includes(qHoras)
+        ) {
+          return false;
+        }
+      }
+      if (
+        filtroPropietario.trim() &&
+        !item['Cliente Propietario'].toLowerCase().includes(filtroPropietario.trim().toLowerCase())
+      ) {
+        return false;
+      }
+      if (
+        filtroUbicacion.trim() &&
+        !item['Nombre Cliente Ubicación']
+          .toLowerCase()
+          .includes(filtroUbicacion.trim().toLowerCase())
+      ) {
+        return false;
+      }
       if (
         filtroSerie.trim() &&
         !item['Nº Serie'].toLowerCase().includes(filtroSerie.trim().toLowerCase())
@@ -162,18 +205,6 @@ export function PlanificacionView() {
       ) {
         return false;
       }
-      if (
-        filtroPropietario.trim() &&
-        !item['Cliente Propietario'].toLowerCase().includes(filtroPropietario.trim().toLowerCase())
-      ) {
-        return false;
-      }
-      if (
-        filtroUbicacion.trim() &&
-        !item['Cliente Ubicación'].toLowerCase().includes(filtroUbicacion.trim().toLowerCase())
-      ) {
-        return false;
-      }
       if (filtroGlobal.trim()) {
         const q = filtroGlobal.trim().toLowerCase();
         const coincide = Object.entries(item)
@@ -187,11 +218,12 @@ export function PlanificacionView() {
     equipos,
     filtroProd,
     filtroContrato,
+    filtroHoras,
+    filtroPropietario,
+    filtroUbicacion,
     filtroSerie,
     filtroModelo,
     filtroSucursal,
-    filtroPropietario,
-    filtroUbicacion,
     filtroGlobal,
   ]);
 
@@ -200,11 +232,12 @@ export function PlanificacionView() {
   }, [
     filtroProd,
     filtroContrato,
+    filtroHoras,
+    filtroPropietario,
+    filtroUbicacion,
     filtroSerie,
     filtroModelo,
     filtroSucursal,
-    filtroPropietario,
-    filtroUbicacion,
     filtroGlobal,
   ]);
 
@@ -219,22 +252,24 @@ export function PlanificacionView() {
     filtroGlobal.trim() ||
       filtroProd.trim() ||
       filtroContrato.trim() ||
+      filtroHoras.trim() ||
+      filtroPropietario.trim() ||
+      filtroUbicacion.trim() ||
       filtroSerie.trim() ||
       filtroModelo.trim() ||
-      filtroSucursal.trim() ||
-      filtroPropietario.trim() ||
-      filtroUbicacion.trim()
+      filtroSucursal.trim()
   );
 
   const limpiarFiltros = () => {
     setFiltroGlobal('');
     setFiltroProd('');
     setFiltroContrato('');
+    setFiltroHoras('');
+    setFiltroPropietario('');
+    setFiltroUbicacion('');
     setFiltroSerie('');
     setFiltroModelo('');
     setFiltroSucursal('');
-    setFiltroPropietario('');
-    setFiltroUbicacion('');
   };
 
   const exportarExcel = () => {
@@ -327,11 +362,12 @@ export function PlanificacionView() {
                 <tr className="bg-muted/50 border-b text-xs uppercase text-muted-foreground">
                   <th className="p-3">Nº Prod. Servicio</th>
                   <th className="p-3">Nº Contrato</th>
+                  <th className="p-3 text-right">Nº de horas</th>
+                  <th className="p-3">Cliente Propietario</th>
+                  <th className="p-3">Nombre Cliente Ubicación</th>
                   <th className="p-3">Nº Serie</th>
                   <th className="p-3">Modelo</th>
                   <th className="p-3">Sucursal</th>
-                  <th className="p-3">Cliente Propietario</th>
-                  <th className="p-3">Cliente Ubicación</th>
                 </tr>
                 <tr className="bg-muted/20 border-b">
                   <th className="p-2">
@@ -349,6 +385,33 @@ export function PlanificacionView() {
                       placeholder="Filtrar contrato..."
                       value={filtroContrato}
                       onChange={(e) => setFiltroContrato(e.target.value)}
+                      className="w-full px-2 py-1 bg-background border rounded text-xs font-normal focus:outline-none"
+                    />
+                  </th>
+                  <th className="p-2">
+                    <input
+                      type="text"
+                      placeholder="Horas..."
+                      value={filtroHoras}
+                      onChange={(e) => setFiltroHoras(e.target.value)}
+                      className="w-full px-2 py-1 bg-background border rounded text-xs font-normal text-right focus:outline-none"
+                    />
+                  </th>
+                  <th className="p-2">
+                    <input
+                      type="text"
+                      placeholder="Cliente propietario (H)..."
+                      value={filtroPropietario}
+                      onChange={(e) => setFiltroPropietario(e.target.value)}
+                      className="w-full px-2 py-1 bg-background border rounded text-xs font-normal focus:outline-none"
+                    />
+                  </th>
+                  <th className="p-2">
+                    <input
+                      type="text"
+                      placeholder="Nombre cliente ubicación (I)..."
+                      value={filtroUbicacion}
+                      onChange={(e) => setFiltroUbicacion(e.target.value)}
                       className="w-full px-2 py-1 bg-background border rounded text-xs font-normal focus:outline-none"
                     />
                   </th>
@@ -379,30 +442,12 @@ export function PlanificacionView() {
                       className="w-full px-2 py-1 bg-background border rounded text-xs font-normal focus:outline-none"
                     />
                   </th>
-                  <th className="p-2">
-                    <input
-                      type="text"
-                      placeholder="Propietario..."
-                      value={filtroPropietario}
-                      onChange={(e) => setFiltroPropietario(e.target.value)}
-                      className="w-full px-2 py-1 bg-background border rounded text-xs font-normal focus:outline-none"
-                    />
-                  </th>
-                  <th className="p-2">
-                    <input
-                      type="text"
-                      placeholder="Ubicación..."
-                      value={filtroUbicacion}
-                      onChange={(e) => setFiltroUbicacion(e.target.value)}
-                      className="w-full px-2 py-1 bg-background border rounded text-xs font-normal focus:outline-none"
-                    />
-                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {visibleRows.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="p-6 text-center text-muted-foreground text-xs">
+                    <td colSpan={8} className="p-6 text-center text-muted-foreground text-xs">
                       No hay equipos que coincidan con los filtros aplicados.
                     </td>
                   </tr>
@@ -416,11 +461,14 @@ export function PlanificacionView() {
                       <td className="p-3 font-mono text-xs font-bold text-primary">
                         {row['Nº Contrato']}
                       </td>
+                      <td className="p-3 text-right font-mono text-xs font-semibold">
+                        {row['Nº de horas'].toLocaleString('es-ES')}
+                      </td>
+                      <td className="p-3">{row['Cliente Propietario']}</td>
+                      <td className="p-3">{row['Nombre Cliente Ubicación']}</td>
                       <td className="p-3 text-muted-foreground">{row['Nº Serie']}</td>
                       <td className="p-3">{row['Modelo']}</td>
                       <td className="p-3">{row['Sucursal']}</td>
-                      <td className="p-3">{row['Cliente Propietario']}</td>
-                      <td className="p-3">{row['Cliente Ubicación']}</td>
                     </tr>
                   ))
                 )}
