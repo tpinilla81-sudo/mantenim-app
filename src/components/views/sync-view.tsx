@@ -249,4 +249,335 @@ export function SyncView() {
       const target = nombre.toUpperCase();
       const parcial = keys.find((k) => {
         const kUp = k.trim().toUpperCase();
-        if (
+        if (excluir.some((ex) => kUp.includes(ex))) return false;
+        return kUp.includes(target);
+      });
+      if (parcial !== undefined && row[parcial] !== undefined && String(row[parcial]).trim() !== '') {
+        return row[parcial];
+      }
+    }
+
+    return '';
+  };
+
+  const tieneValorValido = (valor: any): boolean => {
+    const limpio = String(valor ?? '').trim().toUpperCase();
+    if (!limpio) return false;
+    if (
+      limpio === '0' ||
+      limpio === '-' ||
+      limpio === 'N/A' ||
+      limpio === 'SIN CONTRATO' ||
+      limpio === 'NULL' ||
+      limpio === 'UNDEFINED'
+    ) {
+      return false;
+    }
+    return true;
+  };
+
+  const handleProcesar = async () => {
+    if (!productosFile || !lineasContratoFile) {
+      setIsError(true);
+      setStatusMessage('Selecciona Productos de Servicio y Lista Líneas de Contrato.');
+      return;
+    }
+
+    setLoading(true);
+    setStatusMessage(null);
+    setIsError(false);
+
+    try {
+      const [productosExtraidos, lineasRows] = await Promise.all([
+        leerProductosConColumnasFijas(productosFile),
+        leerExcel(lineasContratoFile),
+      ]);
+
+      const mapaContratos = new Map<string, { contrato: string; sucursal: string }>();
+
+      lineasRows.forEach((linea) => {
+        const idProd = String(
+          buscarColumna(
+            linea,
+            ['Nº prod. servicio', 'Nº producto', 'Prod. servicio', 'Producto', 'Nº', 'No.', 'Código'],
+            ['GRUPO', 'TIPO']
+          )
+        ).trim();
+        const contrato = String(
+          buscarColumna(
+            linea,
+            ['Nº contrato', 'N. contrato', 'Contrato', 'Nº de contrato'],
+            ['GRUPO', 'TIPO']
+          )
+        ).trim();
+        const sucursal = String(
+          buscarColumna(linea, ['Sucursal', 'Cód. sucursal', 'Delegación', 'Centro'], ['GRUPO'])
+        ).trim();
+
+        if (idProd && tieneValorValido(contrato)) {
+          const clave = idProd.toUpperCase();
+          if (!mapaContratos.has(clave)) {
+            mapaContratos.set(clave, { contrato, sucursal });
+          }
+        }
+      });
+
+      const resultado: EquipoContratoSync[] = [];
+      const yaIncluidos = new Set<string>();
+
+      productosExtraidos.forEach(({ rowObj, horas, clientePropietario, nombreClienteUbicacion }, idx) => {
+        const idProd = String(
+          buscarColumna(
+            rowObj,
+            ['Nº prod. servicio', 'Nº producto', 'Prod. servicio', 'Producto', 'Nº', 'No.', 'Código'],
+            ['GRUPO', 'TIPO']
+          )
+        ).trim();
+        if (!idProd) return;
+
+        const clave = idProd.toUpperCase();
+        const contratoLinea = mapaContratos.get(clave);
+        const contratoProd = String(
+          buscarColumna(
+            rowObj,
+            ['Nº contrato', 'N. contrato', 'Contrato', 'Nº de contrato'],
+            ['GRUPO', 'TIPO']
+          )
+        ).trim();
+
+        const tieneEnLinea = Boolean(contratoLinea && tieneValorValido(contratoLinea.contrato));
+        const tieneEnProd = tieneValorValido(contratoProd);
+        const contratoFinal = tieneEnLinea
+          ? contratoLinea!.contrato
+          : tieneEnProd
+          ? contratoProd
+          : '';
+
+        if (!tieneValorValido(contratoFinal)) return;
+        if (yaIncluidos.has(clave)) return;
+        yaIncluidos.add(clave);
+
+        resultado.push({
+          'Nº prod. servicio': idProd,
+          'Nº Contrato': contratoFinal,
+          'Nº de horas': horas,
+          'Cliente Propietario': clientePropietario,
+          'Nombre Cliente Ubicación': nombreClienteUbicacion,
+          'Nº Serie':
+            String(
+              buscarColumna(rowObj, ['Nº serie', 'Nº Serie', 'No. serie', 'Serie'], ['PRODUCTO'])
+            ).trim() || 'N/A',
+          'Modelo':
+            String(buscarColumna(rowObj, ['Modelo', 'Cód. modelo', 'Descripción modelo'])).trim() ||
+            'N/A',
+          'Sucursal':
+            String(
+              buscarColumna(rowObj, ['Sucursal', 'Cód. sucursal', 'Delegación', 'Centro'])
+            ).trim() ||
+            contratoLinea?.sucursal ||
+            'N/A',
+          idUnico: `${idx}_${clave}`,
+        });
+      });
+
+      const serialized = JSON.stringify(resultado);
+      localStorage.setItem(STORAGE_CONTRATOS_KEY, serialized);
+      localStorage.setItem(STORAGE_PLANIFICACION_KEY, serialized);
+      window.dispatchEvent(new Event(SYNC_UPDATED_EVENT));
+
+      setEquipos(resultado);
+      setIsError(false);
+      setStatusMessage(
+        `Sincronizados ${resultado.length} equipos con contrato (Horas col. L, Cliente Propietario col. H y Nombre Cliente Ubicación col. I).`
+      );
+    } catch (error: any) {
+      setIsError(true);
+      setStatusMessage(error?.message || 'Error al sincronizar los ficheros.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDescargarExcel = () => {
+    if (equipos.length === 0) return;
+    const rowsExport = equipos.map(({ idUnico, ...rest }) => rest);
+    const hoja = XLSX.utils.json_to_sheet(rowsExport);
+    const libro = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(libro, hoja, 'Equipos_Con_Contrato');
+    XLSX.writeFile(libro, `Equipos_Con_Contrato_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
+  const handleReset = () => {
+    localStorage.removeItem(STORAGE_CONTRATOS_KEY);
+    localStorage.removeItem(STORAGE_PLANIFICACION_KEY);
+    window.dispatchEvent(new Event(SYNC_UPDATED_EVENT));
+    setEquipos([]);
+    setProductosFile(null);
+    setLineasContratoFile(null);
+    setStatusMessage(null);
+    setIsError(false);
+  };
+
+  return (
+    <div className="p-6 space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight">Sincronización</h2>
+          <p className="text-sm text-muted-foreground">
+            Cruza <strong>Productos de Servicio</strong> contra <strong>Lista Líneas de Contrato</strong> y envía los equipos con contrato a <strong>Planificación / Revisiones</strong>.
+          </p>
+        </div>
+        <span className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-100 text-emerald-900">
+          {equipos.length > 0
+            ? `${equipos.length} equipos con contrato sincronizados`
+            : 'Sin sincronizar'}
+        </span>
+      </div>
+
+      <div className="bg-card border rounded-xl p-6 shadow-sm space-y-5">
+        <div
+          onDragOver={(e) => {
+            e.preventDefault();
+            setIsDragging(true);
+          }}
+          onDragLeave={() => setIsDragging(false)}
+          onDrop={handleDrop}
+          onClick={() => dropRef.current?.click()}
+          className={`border-2 border-dashed rounded-xl p-7 text-center cursor-pointer transition-colors ${
+            isDragging
+              ? 'border-primary bg-primary/5'
+              : 'border-muted-foreground/30 hover:border-primary/60 bg-muted/20'
+          }`}
+        >
+          <input
+            ref={dropRef}
+            type="file"
+            multiple
+            accept=".xlsx,.xls"
+            onChange={(e) => e.target.files && asignarArchivos(e.target.files)}
+            className="hidden"
+          />
+          <div className="flex flex-col items-center gap-2">
+            <Upload className="w-7 h-7 text-primary" />
+            <p className="text-sm font-medium">
+              Arrastra aquí Productos de Servicio y Lista Líneas de Contrato
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div
+            onClick={() => prodRef.current?.click()}
+            className={`p-4 border rounded-lg flex items-center justify-between cursor-pointer ${
+              productosFile ? 'bg-emerald-50/50 border-emerald-300' : 'bg-muted/20 border-dashed'
+            }`}
+          >
+            <input
+              ref={prodRef}
+              type="file"
+              accept=".xlsx,.xls"
+              className="hidden"
+              onChange={(e) => {
+                if (e.target.files?.[0]) {
+                  setProductosFile(e.target.files[0]);
+                  setStatusMessage(null);
+                }
+              }}
+            />
+            <div className="flex items-center gap-3 truncate">
+              <FileSpreadsheet className="w-5 h-5 text-emerald-700 shrink-0" />
+              <div className="truncate">
+                <p className="text-xs font-bold uppercase">Productos de Servicio</p>
+                <p className="text-xs text-muted-foreground truncate">
+                  {productosFile ? productosFile.name : 'Sin seleccionar'}
+                </p>
+              </div>
+            </div>
+            {productosFile && <CheckCircle2 className="w-5 h-5 text-emerald-700 shrink-0" />}
+          </div>
+
+          <div
+            onClick={() => lineasRef.current?.click()}
+            className={`p-4 border rounded-lg flex items-center justify-between cursor-pointer ${
+              lineasContratoFile ? 'bg-emerald-50/50 border-emerald-300' : 'bg-muted/20 border-dashed'
+            }`}
+          >
+            <input
+              ref={lineasRef}
+              type="file"
+              accept=".xlsx,.xls"
+              className="hidden"
+              onChange={(e) => {
+                if (e.target.files?.[0]) {
+                  setLineasContratoFile(e.target.files[0]);
+                  setStatusMessage(null);
+                }
+              }}
+            />
+            <div className="flex items-center gap-3 truncate">
+              <FileSpreadsheet className="w-5 h-5 text-emerald-700 shrink-0" />
+              <div className="truncate">
+                <p className="text-xs font-bold uppercase">Lista Líneas de Contrato</p>
+                <p className="text-xs text-muted-foreground truncate">
+                  {lineasContratoFile ? lineasContratoFile.name : 'Sin seleccionar'}
+                </p>
+              </div>
+            </div>
+            {lineasContratoFile && <CheckCircle2 className="w-5 h-5 text-emerald-700 shrink-0" />}
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3 pt-2 border-t">
+          <button
+            type="button"
+            disabled={loading || !productosFile || !lineasContratoFile}
+            onClick={handleProcesar}
+            className="px-5 py-2.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 text-sm font-medium flex items-center gap-2 cursor-pointer"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            {loading ? 'Sincronizando...' : 'Sincronizar'}
+          </button>
+
+          {equipos.length > 0 && (
+            <button
+              type="button"
+              onClick={handleDescargarExcel}
+              className="px-4 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium flex items-center gap-2 cursor-pointer"
+            >
+              <Download className="w-4 h-4" /> Descargar Excel ({equipos.length})
+            </button>
+          )}
+
+          {(equipos.length > 0 || productosFile || lineasContratoFile) && (
+            <button
+              type="button"
+              onClick={handleReset}
+              className="px-3.5 py-2.5 bg-secondary text-secondary-foreground rounded-lg hover:bg-secondary/80 text-sm font-medium flex items-center gap-1.5 cursor-pointer"
+            >
+              <Trash2 className="w-4 h-4" /> Vaciar
+            </button>
+          )}
+        </div>
+
+        {statusMessage && (
+          <div
+            className={`p-4 rounded-lg border text-sm font-medium flex items-center gap-2.5 ${
+              isError
+                ? 'bg-destructive/10 text-destructive border-destructive/30'
+                : 'bg-emerald-50 text-emerald-900 border-emerald-200'
+            }`}
+          >
+            {isError ? (
+              <AlertCircle className="w-5 h-5 shrink-0" />
+            ) : (
+              <CheckCircle2 className="w-5 h-5 shrink-0" />
+            )}
+            <span>{statusMessage}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default SyncView;
