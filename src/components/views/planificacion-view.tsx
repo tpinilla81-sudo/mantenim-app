@@ -19,6 +19,10 @@ import {
 
 const PAGE_SIZE = 50;
 
+interface FilaPlanificacion extends EquipoContratoSync {
+  'Fecha Próxima Revisión': string;
+}
+
 function parseHorasSeguro(val: any): number {
   if (typeof val === 'number') return isNaN(val) ? 0 : val;
   if (val === undefined || val === null) return 0;
@@ -36,7 +40,7 @@ function parseHorasSeguro(val: any): number {
   return isNaN(num) ? 0 : num;
 }
 
-function normalizarFila(raw: any, index: number): EquipoContratoSync {
+function normalizarFila(raw: any, index: number): FilaPlanificacion {
   const nProd = String(
     raw?.['Nº prod. servicio'] ??
       raw?.nProductoServicio ??
@@ -59,6 +63,12 @@ function normalizarFila(raw: any, index: number): EquipoContratoSync {
     raw?.contador ??
     0;
 
+  const fechaRaw =
+    raw?.['Fecha Próxima Revisión'] ??
+    raw?.['Fecha próxima revisión'] ??
+    raw?.fechaProximaRevision ??
+    '';
+
   return {
     'Nº prod. servicio': nProd || '-',
     'Nº Contrato': nContrato || '-',
@@ -80,12 +90,13 @@ function normalizarFila(raw: any, index: number): EquipoContratoSync {
           raw?.clienteUbicacion ??
           'N/A'
       ).trim() || 'N/A',
+    'Fecha Próxima Revisión': String(fechaRaw ?? '').trim(),
     idUnico: String(raw?.idUnico ?? `${index}_${nProd}`).trim(),
   };
 }
 
 export function PlanificacionView() {
-  const [equipos, setEquipos] = useState<EquipoContratoSync[]>([]);
+  const [equipos, setEquipos] = useState<FilaPlanificacion[]>([]);
   const [page, setPage] = useState(1);
 
   const [filtroGlobal, setFiltroGlobal] = useState('');
@@ -97,6 +108,7 @@ export function PlanificacionView() {
   const [filtroSucursal, setFiltroSucursal] = useState('');
   const [filtroPropietario, setFiltroPropietario] = useState('');
   const [filtroUbicacion, setFiltroUbicacion] = useState('');
+  const [filtroFechaRevision, setFiltroFechaRevision] = useState('');
 
   const cargarDatos = () => {
     try {
@@ -205,6 +217,14 @@ export function PlanificacionView() {
       ) {
         return false;
       }
+      if (
+        filtroFechaRevision.trim() &&
+        !item['Fecha Próxima Revisión']
+          .toLowerCase()
+          .includes(filtroFechaRevision.trim().toLowerCase())
+      ) {
+        return false;
+      }
       if (filtroGlobal.trim()) {
         const q = filtroGlobal.trim().toLowerCase();
         const coincide = Object.entries(item)
@@ -224,6 +244,7 @@ export function PlanificacionView() {
     filtroSucursal,
     filtroPropietario,
     filtroUbicacion,
+    filtroFechaRevision,
     filtroGlobal,
   ]);
 
@@ -238,6 +259,7 @@ export function PlanificacionView() {
     filtroSucursal,
     filtroPropietario,
     filtroUbicacion,
+    filtroFechaRevision,
     filtroGlobal,
   ]);
 
@@ -257,7 +279,8 @@ export function PlanificacionView() {
       filtroHoras.trim() ||
       filtroSucursal.trim() ||
       filtroPropietario.trim() ||
-      filtroUbicacion.trim()
+      filtroUbicacion.trim() ||
+      filtroFechaRevision.trim()
   );
 
   const limpiarFiltros = () => {
@@ -270,6 +293,7 @@ export function PlanificacionView() {
     setFiltroSucursal('');
     setFiltroPropietario('');
     setFiltroUbicacion('');
+    setFiltroFechaRevision('');
   };
 
   const exportarExcel = () => {
@@ -283,6 +307,7 @@ export function PlanificacionView() {
       'Sucursal': rest['Sucursal'],
       'Cliente Propietario': rest['Cliente Propietario'],
       'Nombre Cliente Ubicación': rest['Nombre Cliente Ubicación'],
+      'Fecha Próxima Revisión': rest['Fecha Próxima Revisión'],
     }));
     const ws = XLSX.utils.json_to_sheet(rowsExport);
     const wb = XLSX.utils.book_new();
@@ -377,6 +402,7 @@ export function PlanificacionView() {
                   <th className="p-3">Sucursal</th>
                   <th className="p-3">Cliente Propietario</th>
                   <th className="p-3">Nombre Cliente Ubicación</th>
+                  <th className="p-3">Fecha Próxima Revisión</th>
                 </tr>
                 <tr className="bg-muted/20 border-b">
                   <th className="p-2">
@@ -447,73 +473,3 @@ export function PlanificacionView() {
                       type="text"
                       placeholder="Nombre cliente ubicación (I)..."
                       value={filtroUbicacion}
-                      onChange={(e) => setFiltroUbicacion(e.target.value)}
-                      className="w-full px-2 py-1 bg-background border rounded text-xs font-normal focus:outline-none"
-                    />
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {visibleRows.length === 0 ? (
-                  <tr>
-                    <td colSpan={8} className="p-6 text-center text-muted-foreground text-xs">
-                      No hay equipos que coincidan con los filtros aplicados.
-                    </td>
-                  </tr>
-                ) : (
-                  visibleRows.map((row, idx) => (
-                    <tr
-                      key={row.idUnico || `${row['Nº prod. servicio']}_${idx}`}
-                      className="hover:bg-muted/20"
-                    >
-                      <td className="p-3 font-semibold">{row['Nº prod. servicio']}</td>
-                      <td className="p-3 font-mono text-xs font-bold text-primary">
-                        {row['Nº Contrato']}
-                      </td>
-                      <td className="p-3 text-muted-foreground">{row['Nº Serie']}</td>
-                      <td className="p-3">{row['Modelo']}</td>
-                      <td className="p-3 text-right font-mono text-xs font-semibold">
-                        {row['Nº de horas'].toLocaleString('es-ES')}
-                      </td>
-                      <td className="p-3">{row['Sucursal']}</td>
-                      <td className="p-3">{row['Cliente Propietario']}</td>
-                      <td className="p-3">{row['Nombre Cliente Ubicación']}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          {filtrados.length > PAGE_SIZE && (
-            <div className="px-4 py-3 border-t bg-muted/20 flex items-center justify-between text-xs">
-              <span className="text-muted-foreground">
-                Página <strong>{currentPage}</strong> de <strong>{totalPages}</strong>
-              </span>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  disabled={currentPage <= 1}
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  className="px-2.5 py-1 border rounded bg-background disabled:opacity-40 flex items-center gap-1 cursor-pointer"
-                >
-                  <ChevronLeft className="w-3.5 h-3.5" /> Anterior
-                </button>
-                <button
-                  type="button"
-                  disabled={currentPage >= totalPages}
-                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                  className="px-2.5 py-1 border rounded bg-background disabled:opacity-40 flex items-center gap-1 cursor-pointer"
-                >
-                  Siguiente <ChevronRight className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-export default PlanificacionView;
