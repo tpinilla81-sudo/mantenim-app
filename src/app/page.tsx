@@ -12,7 +12,7 @@ import {
 import { cn } from '@/lib/utils'
 import { HoyView } from '@/components/views/hoy-view'
 import { SyncView } from '@/components/views/sync-view'
-import { RevisionesView } from '@/components/views/revisiones-view'
+import { PlanificacionView } from '@/components/views/planificacion-view'
 import { LogicasView } from '@/components/views/logicas-view'
 
 type ViewKey =
@@ -39,7 +39,7 @@ const NAV_ITEMS: NavItem[] = [
     key: 'revisiones',
     label: 'Planificación / Revisiones',
     icon: FileText,
-    description: 'Dataset unificado de revisiones y Business Central',
+    description: 'Equipos con contrato sincronizados desde Productos de Servicio y Lista Líneas de Contrato',
   },
   {
     key: 'logicas',
@@ -51,7 +51,7 @@ const NAV_ITEMS: NavItem[] = [
     key: 'sync',
     label: 'Sincronizar BC',
     icon: Database,
-    description: 'Importar datos desde Business Central (5 excels)',
+    description: 'Importar datos desde Business Central',
   },
 ]
 
@@ -84,7 +84,7 @@ export default function Home() {
       case 'sync':
         return <SyncView />
       case 'revisiones':
-        return <RevisionesView />
+        return <PlanificacionView />
       default:
         return null
     }
