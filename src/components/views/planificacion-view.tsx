@@ -64,8 +64,8 @@ function normalizarFila(raw: any, index: number): EquipoContratoSync {
     'Nº Contrato': nContrato || '-',
     'Nº Serie': String(raw?.['Nº Serie'] ?? raw?.nSerie ?? raw?.serie ?? 'N/A').trim() || 'N/A',
     'Modelo': String(raw?.['Modelo'] ?? raw?.modelo ?? 'N/A').trim() || 'N/A',
-    'Sucursal': String(raw?.['Sucursal'] ?? raw?.sucursal ?? 'N/A').trim() || 'N/A',
     'Nº de horas': parseHorasSeguro(horasRaw),
+    'Sucursal': String(raw?.['Sucursal'] ?? raw?.sucursal ?? 'N/A').trim() || 'N/A',
     'Cliente Propietario':
       String(
         raw?.['Cliente Propietario'] ??
@@ -93,8 +93,8 @@ export function PlanificacionView() {
   const [filtroContrato, setFiltroContrato] = useState('');
   const [filtroSerie, setFiltroSerie] = useState('');
   const [filtroModelo, setFiltroModelo] = useState('');
-  const [filtroSucursal, setFiltroSucursal] = useState('');
   const [filtroHoras, setFiltroHoras] = useState('');
+  const [filtroSucursal, setFiltroSucursal] = useState('');
   const [filtroPropietario, setFiltroPropietario] = useState('');
   const [filtroUbicacion, setFiltroUbicacion] = useState('');
 
@@ -174,12 +174,6 @@ export function PlanificacionView() {
       ) {
         return false;
       }
-      if (
-        filtroSucursal.trim() &&
-        !item['Sucursal'].toLowerCase().includes(filtroSucursal.trim().toLowerCase())
-      ) {
-        return false;
-      }
       if (filtroHoras.trim()) {
         const horasFormateadas = item['Nº de horas'].toLocaleString('es-ES');
         const horasCrudas = String(item['Nº de horas']);
@@ -190,6 +184,12 @@ export function PlanificacionView() {
         ) {
           return false;
         }
+      }
+      if (
+        filtroSucursal.trim() &&
+        !item['Sucursal'].toLowerCase().includes(filtroSucursal.trim().toLowerCase())
+      ) {
+        return false;
       }
       if (
         filtroPropietario.trim() &&
@@ -220,8 +220,8 @@ export function PlanificacionView() {
     filtroContrato,
     filtroSerie,
     filtroModelo,
-    filtroSucursal,
     filtroHoras,
+    filtroSucursal,
     filtroPropietario,
     filtroUbicacion,
     filtroGlobal,
@@ -234,8 +234,8 @@ export function PlanificacionView() {
     filtroContrato,
     filtroSerie,
     filtroModelo,
-    filtroSucursal,
     filtroHoras,
+    filtroSucursal,
     filtroPropietario,
     filtroUbicacion,
     filtroGlobal,
@@ -254,8 +254,8 @@ export function PlanificacionView() {
       filtroContrato.trim() ||
       filtroSerie.trim() ||
       filtroModelo.trim() ||
-      filtroSucursal.trim() ||
       filtroHoras.trim() ||
+      filtroSucursal.trim() ||
       filtroPropietario.trim() ||
       filtroUbicacion.trim()
   );
@@ -266,8 +266,8 @@ export function PlanificacionView() {
     setFiltroContrato('');
     setFiltroSerie('');
     setFiltroModelo('');
-    setFiltroSucursal('');
     setFiltroHoras('');
+    setFiltroSucursal('');
     setFiltroPropietario('');
     setFiltroUbicacion('');
   };
@@ -279,8 +279,8 @@ export function PlanificacionView() {
       'Nº Contrato': rest['Nº Contrato'],
       'Nº Serie': rest['Nº Serie'],
       'Modelo': rest['Modelo'],
-      'Sucursal': rest['Sucursal'],
       'Nº de horas': rest['Nº de horas'],
+      'Sucursal': rest['Sucursal'],
       'Cliente Propietario': rest['Cliente Propietario'],
       'Nombre Cliente Ubicación': rest['Nombre Cliente Ubicación'],
     }));
@@ -373,8 +373,8 @@ export function PlanificacionView() {
                   <th className="p-3">Nº Contrato</th>
                   <th className="p-3">Nº Serie</th>
                   <th className="p-3">Modelo</th>
-                  <th className="p-3">Sucursal</th>
                   <th className="p-3 text-right">Nº de horas</th>
+                  <th className="p-3">Sucursal</th>
                   <th className="p-3">Cliente Propietario</th>
                   <th className="p-3">Nombre Cliente Ubicación</th>
                 </tr>
@@ -418,19 +418,19 @@ export function PlanificacionView() {
                   <th className="p-2">
                     <input
                       type="text"
-                      placeholder="Sucursal..."
-                      value={filtroSucursal}
-                      onChange={(e) => setFiltroSucursal(e.target.value)}
-                      className="w-full px-2 py-1 bg-background border rounded text-xs font-normal focus:outline-none"
+                      placeholder="Horas..."
+                      value={filtroHoras}
+                      onChange={(e) => setFiltroHoras(e.target.value)}
+                      className="w-full px-2 py-1 bg-background border rounded text-xs font-normal text-right focus:outline-none"
                     />
                   </th>
                   <th className="p-2">
                     <input
                       type="text"
-                      placeholder="Horas..."
-                      value={filtroHoras}
-                      onChange={(e) => setFiltroHoras(e.target.value)}
-                      className="w-full px-2 py-1 bg-background border rounded text-xs font-normal text-right focus:outline-none"
+                      placeholder="Sucursal..."
+                      value={filtroSucursal}
+                      onChange={(e) => setFiltroSucursal(e.target.value)}
+                      className="w-full px-2 py-1 bg-background border rounded text-xs font-normal focus:outline-none"
                     />
                   </th>
                   <th className="p-2">
@@ -472,10 +472,10 @@ export function PlanificacionView() {
                       </td>
                       <td className="p-3 text-muted-foreground">{row['Nº Serie']}</td>
                       <td className="p-3">{row['Modelo']}</td>
-                      <td className="p-3">{row['Sucursal']}</td>
                       <td className="p-3 text-right font-mono text-xs font-semibold">
                         {row['Nº de horas'].toLocaleString('es-ES')}
                       </td>
+                      <td className="p-3">{row['Sucursal']}</td>
                       <td className="p-3">{row['Cliente Propietario']}</td>
                       <td className="p-3">{row['Nombre Cliente Ubicación']}</td>
                     </tr>
