@@ -19,10 +19,17 @@ import {
 
 const PAGE_SIZE = 50;
 
+export interface RitmoHorasHistorico {
+  horasPorDia?: number;
+  horasPorMes?: number;
+  ultimaFecha?: string;
+}
+
 interface FilaPlanificacion extends EquipoContratoSync {
   esPropia: boolean;
   tieneContrato: boolean;
   revisionesAnuales: number | null;
+  horasPorDia: number | null;
   'Fecha Última Revisión': string;
   'Fecha Próxima Revisión': string;
 }
@@ -51,7 +58,7 @@ function parseBooleano(val: any): boolean {
   return s === 'true' || s === 'sí' || s === 'si' || s === '1' || s === 'yes';
 }
 
-function parseFechaDDMMYYYY(fechaStr: string): Date | null {
+function parseFecha(fechaStr: string): Date | null {
   const s = String(fechaStr ?? '').trim();
   if (!s) return null;
   const m = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
@@ -73,26 +80,75 @@ function formatDDMMYYYY(dt: Date): string {
   return `${dd}/${mm}/${yyyy}`;
 }
 
+function leerRitmosHistoricos(): Record<string, RitmoHorasHistorico> {
+  try {
+    const keys = [
+      'mantenim_ritmos_horas_propios',
+      'mantenim_historico_ritmos',
+      STORAGE_PLANIFICACION_KEY,
+    ];
+    for (const k of keys) {
+      const raw = localStorage.getItem(k);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw);
+      if (parsed && !Array.isArray(parsed) && typeof parsed === 'object') {
+        return parsed as Record<string, RitmoHorasHistorico>;
+      }
+      if (Array.isArray(parsed)) {
+        const map: Record<string, RitmoHorasHistorico> = {};
+        for (const row of parsed) {
+          const idNorm = String(
+            row?.['Nº prod. servicio'] ?? row?.prodNorm ?? row?.producto ?? ''
+          )
+            .trim()
+            .replace(/^0+/, '');
+          if (!idNorm) continue;
+          const hDia =
+            row?.horasPorDia ??
+            row?.ritmoHorasDia ??
+            (row?.horasPorMes ? Number(row.horasPorMes) / 30.4375 : undefined);
+          if (hDia && Number(hDia) > 0) {
+            map[idNorm] = { horasPorDia: Number(hDia) };
+          }
+        }
+        if (Object.keys(map).length > 0) return map;
+      }
+    }
+  } catch {
+    // ignorar errores de lectura
+  }
+  return {};
+}
+
 function calcularProximaRevision(
   esPropia: boolean,
   horas: number,
+  horasPorDia: number | null,
   fechaUltimaStr: string,
   revisionesAnuales: number | null
 ): string {
-  // 1. Máquinas propias: revisión cada 1.000 horas
+  // 1. Máquinas propias: siguiente múltiplo de 1.000 h + fecha estimada según pedidos registrados
   if (esPropia) {
     const hitoHoras = (Math.floor(Math.max(0, horas) / 1000) + 1) * 1000;
-    const restantes = Math.max(0, Math.round(hitoHoras - horas));
-    return `${hitoHoras.toLocaleString('es-ES')} h (faltan ${restantes.toLocaleString('es-ES')} h)`;
+    const horasRestantes = Math.max(0, hitoHoras - horas);
+
+    if (horasPorDia && horasPorDia > 0 && horasRestantes > 0) {
+      const diasEstimados = Math.ceil(horasRestantes / horasPorDia);
+      const fechaEst = new Date();
+      fechaEst.setDate(fechaEst.getDate() + diasEstimados);
+      return `${formatDDMMYYYY(fechaEst)} (${hitoHoras.toLocaleString('es-ES')} h)`;
+    }
+
+    return `${hitoHoras.toLocaleString('es-ES')} h (faltan ${Math.round(horasRestantes).toLocaleString('es-ES')} h)`;
   }
 
-  // 2. Máquinas de cliente con contrato: repartidas en el año según Nº REVISIONES ANUALES
-  const fechaUltima = parseFechaDDMMYYYY(fechaUltimaStr);
+  // 2. Máquinas de cliente con contrato: fecha última revisión + reparto anual según contrato
+  const fechaUltima = parseFecha(fechaUltimaStr);
   const revAnuales =
     revisionesAnuales && revisionesAnuales > 0 ? revisionesAnuales : null;
 
   if (!fechaUltima || !revAnuales) {
-    return revAnuales ? `${revAnuales}/año (sin última rev.)` : '—';
+    return revAnuales ? `${revAnuales}/año` : '—';
   }
 
   const diasIntervalo = Math.max(1, Math.round(365 / revAnuales));
@@ -101,7 +157,11 @@ function calcularProximaRevision(
   return formatDDMMYYYY(proxima);
 }
 
-function normalizarFila(raw: any, index: number): FilaPlanificacion | null {
+function normalizarFila(
+  raw: any,
+  index: number,
+  ritmosMap: Record<string, RitmoHorasHistorico>
+): FilaPlanificacion | null {
   const nProd = String(
     raw?.['Nº prod. servicio'] ??
       raw?.nProductoServicio ??
@@ -109,6 +169,8 @@ function normalizarFila(raw: any, index: number): FilaPlanificacion | null {
       raw?.prod ??
       ''
   ).trim();
+
+  const prodNorm = nProd.replace(/^0+/, '');
 
   const nContrato = String(
     raw?.['Nº Contrato'] ??
@@ -138,14 +200,30 @@ function normalizarFila(raw: any, index: number): FilaPlanificacion | null {
       0
   );
 
+  const ritmoDirecto =
+    raw?.horasPorDia ??
+    raw?.ritmoHorasDia ??
+    (raw?.horasPorMes ? Number(raw.horasPorMes) / 30.4375 : null) ??
+    (prodNorm && ritmosMap[prodNorm]?.horasPorDia
+      ? ritmosMap[prodNorm].horasPorDia
+      : prodNorm && ritmosMap[prodNorm]?.horasPorMes
+      ? Number(ritmosMap[prodNorm].horasPorMes) / 30.4375
+      : null);
+
+  const horasPorDia =
+    ritmoDirecto !== null && !isNaN(Number(ritmoDirecto)) && Number(ritmoDirecto) > 0
+      ? Number(ritmoDirecto)
+      : null;
+
   const revRaw =
     raw?.['Nº REVISIONES ANUALES'] ??
     raw?.['Nº revisiones anuales'] ??
     raw?.revisionesAnuales ??
     null;
-  const revNum = revRaw !== null && revRaw !== '' && !isNaN(Number(revRaw))
-    ? Number(revRaw)
-    : null;
+  const revNum =
+    revRaw !== null && revRaw !== '' && !isNaN(Number(revRaw))
+      ? Number(revRaw)
+      : null;
 
   const fechaUltima = String(
     raw?.['Fecha Última Revisión'] ??
@@ -155,22 +233,13 @@ function normalizarFila(raw: any, index: number): FilaPlanificacion | null {
       ''
   ).trim();
 
-  const fechaProximaCalculada = calcularProximaRevision(
+  const fechaProxima = calcularProximaRevision(
     esPropia,
     horas,
+    horasPorDia,
     fechaUltima,
     revNum
   );
-
-  const fechaProxima =
-    fechaProximaCalculada !== '—'
-      ? fechaProximaCalculada
-      : String(
-          raw?.['Fecha Próxima Revisión'] ??
-            raw?.['Fecha próxima revisión'] ??
-            raw?.fechaProximaRevision ??
-            '—'
-        ).trim() || '—';
 
   return {
     'Nº prod. servicio': nProd || '-',
@@ -200,6 +269,7 @@ function normalizarFila(raw: any, index: number): FilaPlanificacion | null {
     esPropia,
     tieneContrato,
     revisionesAnuales: revNum,
+    horasPorDia,
     'Fecha Última Revisión': fechaUltima,
     'Fecha Próxima Revisión': fechaProxima,
     idUnico: String(raw?.idUnico ?? `${index}_${nProd}`).trim(),
@@ -233,11 +303,15 @@ export function PlanificacionView() {
         return;
       }
 
+      const ritmosMap = leerRitmosHistoricos();
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
         const normalizados = parsed
-          .map((item, i) => normalizarFila(item, i))
-          .filter((row): row is FilaPlanificacion => row !== null && row['Nº prod. servicio'] !== '-');
+          .map((item, i) => normalizarFila(item, i, ritmosMap))
+          .filter(
+            (row): row is FilaPlanificacion =>
+              row !== null && row['Nº prod. servicio'] !== '-'
+          );
         setEquipos(normalizados);
         setPage(1);
       } else {
@@ -276,25 +350,33 @@ export function PlanificacionView() {
     return equipos.filter((item) => {
       if (
         filtroProd.trim() &&
-        !item['Nº prod. servicio'].toLowerCase().includes(filtroProd.trim().toLowerCase())
+        !item['Nº prod. servicio']
+          .toLowerCase()
+          .includes(filtroProd.trim().toLowerCase())
       ) {
         return false;
       }
       if (
         filtroContrato.trim() &&
-        !item['Nº Contrato'].toLowerCase().includes(filtroContrato.trim().toLowerCase())
+        !item['Nº Contrato']
+          .toLowerCase()
+          .includes(filtroContrato.trim().toLowerCase())
       ) {
         return false;
       }
       if (
         filtroSerie.trim() &&
-        !item['Nº Serie'].toLowerCase().includes(filtroSerie.trim().toLowerCase())
+        !item['Nº Serie']
+          .toLowerCase()
+          .includes(filtroSerie.trim().toLowerCase())
       ) {
         return false;
       }
       if (
         filtroModelo.trim() &&
-        !item['Modelo'].toLowerCase().includes(filtroModelo.trim().toLowerCase())
+        !item['Modelo']
+          .toLowerCase()
+          .includes(filtroModelo.trim().toLowerCase())
       ) {
         return false;
       }
@@ -311,13 +393,17 @@ export function PlanificacionView() {
       }
       if (
         filtroSucursal.trim() &&
-        !item['Sucursal'].toLowerCase().includes(filtroSucursal.trim().toLowerCase())
+        !item['Sucursal']
+          .toLowerCase()
+          .includes(filtroSucursal.trim().toLowerCase())
       ) {
         return false;
       }
       if (
         filtroPropietario.trim() &&
-        !item['Cliente Propietario'].toLowerCase().includes(filtroPropietario.trim().toLowerCase())
+        !item['Cliente Propietario']
+          .toLowerCase()
+          .includes(filtroPropietario.trim().toLowerCase())
       ) {
         return false;
       }
@@ -437,7 +523,10 @@ export function PlanificacionView() {
     const ws = XLSX.utils.json_to_sheet(rowsExport);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Planificacion_Revisiones');
-    XLSX.writeFile(wb, `Planificacion_Revisiones_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    XLSX.writeFile(
+      wb,
+      `Planificacion_Revisiones_${new Date().toISOString().slice(0, 10)}.xlsx`
+    );
   };
 
   return (
@@ -446,7 +535,7 @@ export function PlanificacionView() {
         <div>
           <h2 className="text-2xl font-bold tracking-tight">Planificación / Revisiones</h2>
           <p className="text-sm text-muted-foreground">
-            Máquinas propias (cada 1.000 h) y máquinas de cliente con contrato (reparto anual de revisiones), excluyendo clientes sin contrato.
+            Máquinas propias (próximo múltiplo de 1.000 h estimado con histórico de pedidos) y máquinas de cliente con contrato (reparto anual de revisiones), excluyendo clientes sin contrato.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -474,7 +563,9 @@ export function PlanificacionView() {
 
       {equipos.length === 0 ? (
         <div className="bg-card border rounded-xl p-10 text-center space-y-3 shadow-sm">
-          <p className="text-sm font-semibold">No hay máquinas propias ni de cliente con contrato cargadas</p>
+          <p className="text-sm font-semibold">
+            No hay máquinas propias ni de cliente con contrato cargadas
+          </p>
           <p className="text-xs text-muted-foreground">
             Sincroniza los ficheros en la pestaña de Sincronización para cargar los datos.
           </p>
@@ -490,7 +581,8 @@ export function PlanificacionView() {
         <div className="bg-card border rounded-xl shadow-sm overflow-hidden">
           <div className="p-4 border-b bg-muted/30 flex flex-wrap items-center justify-between gap-3">
             <p className="text-xs font-semibold text-muted-foreground">
-              Mostrando {visibleRows.length} de {filtrados.length} filtrados / {equipos.length} total
+              Mostrando {visibleRows.length} de {filtrados.length} filtrados /{' '}
+              {equipos.length} total
             </p>
             <div className="flex flex-wrap items-center gap-2">
               <div className="flex items-center gap-1.5 bg-background border rounded-md px-2.5 py-1.5 text-xs">
@@ -626,7 +718,10 @@ export function PlanificacionView() {
               <tbody className="divide-y">
                 {visibleRows.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="p-6 text-center text-muted-foreground text-xs">
+                    <td
+                      colSpan={10}
+                      className="p-6 text-center text-muted-foreground text-xs"
+                    >
                       No hay equipos que coincidan con los filtros aplicados.
                     </td>
                   </tr>
@@ -636,11 +731,15 @@ export function PlanificacionView() {
                       key={row.idUnico || `${row['Nº prod. servicio']}_${idx}`}
                       className="hover:bg-muted/20"
                     >
-                      <td className="p-3 font-semibold">{row['Nº prod. servicio']}</td>
+                      <td className="p-3 font-semibold">
+                        {row['Nº prod. servicio']}
+                      </td>
                       <td className="p-3 font-mono text-xs font-bold text-primary">
                         {row['Nº Contrato']}
                       </td>
-                      <td className="p-3 text-muted-foreground">{row['Nº Serie']}</td>
+                      <td className="p-3 text-muted-foreground">
+                        {row['Nº Serie']}
+                      </td>
                       <td className="p-3">{row['Modelo']}</td>
                       <td className="p-3 text-right font-mono text-xs font-semibold">
                         {row['Nº de horas'].toLocaleString('es-ES')}
