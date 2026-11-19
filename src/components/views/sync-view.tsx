@@ -25,8 +25,9 @@ export interface EquipoContratoSync {
   idUnico: string;
 }
 
-const STORAGE_CONTRATOS_KEY = 'mantenim_equipos_contrato';
-const STORAGE_PLANIFICACION_KEY = 'mantenim_planificacion_data';
+export const STORAGE_CONTRATOS_KEY = 'mantenim_equipos_contrato';
+export const STORAGE_PLANIFICACION_KEY = 'mantenim_planificacion_data';
+export const SYNC_UPDATED_EVENT = 'mantenim-sync-updated';
 
 export function SyncView() {
   const [loading, setLoading] = useState(false);
@@ -44,7 +45,9 @@ export function SyncView() {
 
   useEffect(() => {
     try {
-      const saved = localStorage.getItem(STORAGE_CONTRATOS_KEY);
+      const saved =
+        localStorage.getItem(STORAGE_CONTRATOS_KEY) ||
+        localStorage.getItem(STORAGE_PLANIFICACION_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) {
@@ -268,7 +271,8 @@ export function SyncView() {
           'Nº prod. servicio': idProd,
           'Nº Contrato': contratoFinal,
           'Origen Contrato': origenContrato,
-          'Nº Serie': buscarColumna(prod, ['Nº serie', 'Nº Serie', 'No. serie', 'Serie'], ['PRODUCTO']) || 'N/A',
+          'Nº Serie':
+            buscarColumna(prod, ['Nº serie', 'Nº Serie', 'No. serie', 'Serie'], ['PRODUCTO']) || 'N/A',
           'Modelo': buscarColumna(prod, ['Modelo', 'Cód. modelo', 'Descripción modelo']) || 'N/A',
           'Sucursal':
             buscarColumna(prod, ['Sucursal', 'Cód. sucursal', 'Delegación', 'Centro']) ||
@@ -289,7 +293,19 @@ export function SyncView() {
               'Nº cliente ubicación',
             ]) || 'N/A',
           'Tipo Registro': 'Contratado',
-          idUnico: `${idx}_${clave}`, }); });  // Guardamos los equipos sincronizados y los dejamos disponibles para Planificación / Revisiones localStorage.setItem(STORAGE_CONTRATOS_KEY, JSON.stringify(resultado)); localStorage.setItem(STORAGE_PLANIFICACION_KEY, JSON.stringify(resultado)); window.dispatchEvent(new Event('mantenim-sync-updated'));  setEquipos(resultado); setIsError(false); setStatusMessage( `Sincronizados ${resultado.length} equipos con contrato. Ya están disponibles en Planificación / Revisiones.`
+          idUnico: `${idx}_${clave}`,
+        });
+      });
+
+      const serialized = JSON.stringify(resultado);
+      localStorage.setItem(STORAGE_CONTRATOS_KEY, serialized);
+      localStorage.setItem(STORAGE_PLANIFICACION_KEY, serialized);
+      window.dispatchEvent(new Event(SYNC_UPDATED_EVENT));
+
+      setEquipos(resultado);
+      setIsError(false);
+      setStatusMessage(
+        `Sincronizados ${resultado.length} equipos con contrato. Ya están listos en Planificación / Revisiones.`
       );
     } catch (error: any) {
       setIsError(true);
@@ -305,7 +321,32 @@ export function SyncView() {
     const hoja = XLSX.utils.json_to_sheet(rowsExport);
     const libro = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(libro, hoja, 'Equipos_Con_Contrato');
-    XLSX.writeFile(libro, `Equipos_Con_Contrato_${new Date().toISOString().slice(0, 10)}.xlsx`); };  const handleReset = () => { localStorage.removeItem(STORAGE_CONTRATOS_KEY); localStorage.removeItem(STORAGE_PLANIFICACION_KEY); window.dispatchEvent(new Event('mantenim-sync-updated')); setEquipos([]); setProductosFile(null); setLineasContratoFile(null); setStatusMessage(null); setIsError(false); };  return ( <div className="p-6 space-y-6"> <div className="flex flex-wrap items-center justify-between gap-2"> <div> <h2 className="text-2xl font-bold tracking-tight">Sincronización</h2> <p className="text-sm text-muted-foreground"> Cruza <strong>Productos de Servicio</strong> contra <strong>Lista Líneas de Contrato</strong> y envía los equipos con contrato a <strong>Planificación / Revisiones</strong>. </p> </div> <span className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-100 text-emerald-900"> {equipos.length > 0 ? `${equipos.length} equipos con contrato sincronizados`
+    XLSX.writeFile(libro, `Equipos_Con_Contrato_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
+  const handleReset = () => {
+    localStorage.removeItem(STORAGE_CONTRATOS_KEY);
+    localStorage.removeItem(STORAGE_PLANIFICACION_KEY);
+    window.dispatchEvent(new Event(SYNC_UPDATED_EVENT));
+    setEquipos([]);
+    setProductosFile(null);
+    setLineasContratoFile(null);
+    setStatusMessage(null);
+    setIsError(false);
+  };
+
+  return (
+    <div className="p-6 space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight">Sincronización</h2>
+          <p className="text-sm text-muted-foreground">
+            Cruza <strong>Productos de Servicio</strong> contra <strong>Lista Líneas de Contrato</strong> y envía los equipos con contrato a <strong>Planificación / Revisiones</strong>.
+          </p>
+        </div>
+        <span className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-100 text-emerald-900">
+          {equipos.length > 0
+            ? `${equipos.length} equipos con contrato sincronizados`
             : 'Sin sincronizar'}
         </span>
       </div>
@@ -374,4 +415,86 @@ export function SyncView() {
 
           <div
             onClick={() => lineasRef.current?.click()}
-            className={`p-4 border rounded-lg flex items
+            className={`p-4 border rounded-lg flex items-center justify-between cursor-pointer ${
+              lineasContratoFile ? 'bg-emerald-50/50 border-emerald-300' : 'bg-muted/20 border-dashed'
+            }`}
+          >
+            <input
+              ref={lineasRef}
+              type="file"
+              accept=".xlsx,.xls"
+              className="hidden"
+              onChange={(e) => {
+                if (e.target.files?.[0]) {
+                  setLineasContratoFile(e.target.files[0]);
+                  setStatusMessage(null);
+                }
+              }}
+            />
+            <div className="flex items-center gap-3 truncate">
+              <FileSpreadsheet className="w-5 h-5 text-emerald-700 shrink-0" />
+              <div className="truncate">
+                <p className="text-xs font-bold uppercase">Lista Líneas de Contrato</p>
+                <p className="text-xs text-muted-foreground truncate">
+                  {lineasContratoFile ? lineasContratoFile.name : 'Sin seleccionar'}
+                </p>
+              </div>
+            </div>
+            {lineasContratoFile && <CheckCircle2 className="w-5 h-5 text-emerald-700 shrink-0" />}
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3 pt-2 border-t">
+          <button
+            type="button"
+            disabled={loading || !productosFile || !lineasContratoFile}
+            onClick={handleProcesar}
+            className="px-5 py-2.5 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 text-sm font-medium flex items-center gap-2 cursor-pointer"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            {loading ? 'Sincronizando...' : 'Sincronizar'}
+          </button>
+
+          {equipos.length > 0 && (
+            <button
+              type="button"
+              onClick={handleDescargarExcel}
+              className="px-4 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium flex items-center gap-2 cursor-pointer"
+            >
+              <Download className="w-4 h-4" /> Descargar Excel ({equipos.length})
+            </button>
+          )}
+
+          {(equipos.length > 0 || productosFile || lineasContratoFile) && (
+            <button
+              type="button"
+              onClick={handleReset}
+              className="px-3.5 py-2.5 bg-secondary text-secondary-foreground rounded-lg hover:bg-secondary/80 text-sm font-medium flex items-center gap-1.5 cursor-pointer"
+            >
+              <Trash2 className="w-4 h-4" /> Vaciar
+            </button>
+          )}
+        </div>
+
+        {statusMessage && (
+          <div
+            className={`p-4 rounded-lg border text-sm font-medium flex items-center gap-2.5 ${
+              isError
+                ? 'bg-destructive/10 text-destructive border-destructive/30'
+                : 'bg-emerald-50 text-emerald-900 border-emerald-200'
+            }`}
+          >
+            {isError ? (
+              <AlertCircle className="w-5 h-5 shrink-0" />
+            ) : (
+              <CheckCircle2 className="w-5 h-5 shrink-0" />
+            )}
+            <span>{statusMessage}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default SyncView;
