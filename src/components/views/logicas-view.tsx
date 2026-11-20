@@ -2,7 +2,11 @@
 
 import React, { useState, useEffect } from 'react';
 import { Settings, Save, Plus, Trash2, CheckCircle2, Sliders } from 'lucide-react';
-import { MaintenanceRuleConfig, defaultMaintenanceConfig, getActiveMaintenanceConfig } from '@/lib/maintenance-rules';
+import {
+  MaintenanceRuleConfig,
+  defaultMaintenanceConfig,
+  getActiveMaintenanceConfig,
+} from '@/lib/maintenance-rules';
 
 export function LogicasView() {
   const [config, setConfig] = useState<MaintenanceRuleConfig>(defaultMaintenanceConfig);
@@ -22,19 +26,19 @@ export function LogicasView() {
 
   const handleAddModelo = () => {
     if (!nuevoModelo.trim()) return;
-    setConfig(prev => ({
+    setConfig((prev) => ({
       ...prev,
       horasPorRevisionPorModelo: {
         ...prev.horasPorRevisionPorModelo,
-        [nuevoModelo.trim()]: Number(nuevasHoras) || 1000
-      }
+        [nuevoModelo.trim()]: Number(nuevasHoras) || 1000,
+      },
     }));
     setNuevoModelo('');
     setNuevasHoras(1000);
   };
 
   const handleRemoveModelo = (modeloKey: string) => {
-    setConfig(prev => {
+    setConfig((prev) => {
       const copy = { ...prev.horasPorRevisionPorModelo };
       delete copy[modeloKey];
       return { ...prev, horasPorRevisionPorModelo: copy };
@@ -62,12 +66,13 @@ export function LogicasView() {
       {savedMessage && (
         <div className="p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg text-sm font-medium flex items-center gap-2">
           <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-          <span>¡Lógicas guardadas con éxito! Vuelve a la sección de Sincronización para reprocesar los ficheros aplicando estas reglas.</span>
+          <span>
+            ¡Lógicas guardadas con éxito! Vuelve a la sección de Sincronización para reprocesar los ficheros aplicando estas reglas.
+          </span>
         </div>
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Parámetros Generales */}
         <div className="p-6 bg-card border rounded-lg shadow-sm space-y-4">
           <div className="flex items-center gap-2 font-semibold text-base border-b pb-3">
             <Sliders className="w-5 h-5 text-primary" /> Parámetros Generales
@@ -78,10 +83,17 @@ export function LogicasView() {
             <input
               type="number"
               value={config.horasPorRevisionEstandar}
-              onChange={(e) => setConfig({ ...config, horasPorRevisionEstandar: Number(e.target.value) || 1000 })}
+              onChange={(e) =>
+                setConfig({
+                  ...config,
+                  horasPorRevisionEstandar: Number(e.target.value) || 1000,
+                })
+              }
               className="w-full px-3 py-2 border rounded-lg text-sm bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
             />
-            <p className="text-xs text-muted-foreground">Número de horas de funcionamiento por defecto entre revisiones.</p>
+            <p className="text-xs text-muted-foreground">
+              Número de horas de funcionamiento por defecto entre revisiones.
+            </p>
           </div>
 
           <div className="space-y-2">
@@ -89,14 +101,20 @@ export function LogicasView() {
             <input
               type="number"
               value={config.mesesRevisionesContratoEstandar}
-              onChange={(e) => setConfig({ ...config, mesesRevisionesContratoEstandar: Number(e.target.value) || 12 })}
+              onChange={(e) =>
+                setConfig({
+                  ...config,
+                  mesesRevisionesContratoEstandar: Number(e.target.value) || 12,
+                })
+              }
               className="w-full px-3 py-2 border rounded-lg text-sm bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
             />
-            <p className="text-xs text-muted-foreground">Referencia de meses por defecto para contratos de revisión anual.</p>
+            <p className="text-xs text-muted-foreground">
+              Referencia de meses por defecto para contratos de revisión anual.
+            </p>
           </div>
         </div>
 
-        {/* Excepciones por Modelo */}
         <div className="p-6 bg-card border rounded-lg shadow-sm space-y-4">
           <div className="flex items-center gap-2 font-semibold text-base border-b pb-3">
             <Settings className="w-5 h-5 text-primary" /> Intervalos por Modelo Específico
@@ -134,13 +152,18 @@ export function LogicasView() {
             <div className="border rounded-lg overflow-hidden max-h-48 overflow-y-auto divide-y">
               {Object.keys(config.horasPorRevisionPorModelo).length === 0 ? (
                 <div className="p-4 text-center text-xs text-muted-foreground">
-                  No hay excepciones por modelo configuradas. Se usará el estándar de {config.horasPorRevisionEstandar}h.
+                  No hay excepciones por modelo configuradas. Se usará el estándar de{' '}
+                  {config.horasPorRevisionEstandar}h.
                 </div>
               ) : (
                 Object.entries(config.horasPorRevisionPorModelo).map(([mod, hrs]) => (
-                  <div key={mod} className="flex items-center justify-between px-3 py-2 text-xs bg-background hover:bg-muted/50">
+                  <div
+                    key={mod}
+                    className="flex items-center justify-between px-3 py-2 text-xs bg-background hover:bg-muted/50"
+                  >
                     <div>
-                      <span className="font-semibold">{mod}</span>: <span className="font-mono text-primary font-bold">{hrs} horas</span>
+                      <span className="font-semibold">{mod}</span>:{' '}
+                      <span className="font-mono text-primary font-bold">{hrs} horas</span>
                     </div>
                     <button
                       type="button"
