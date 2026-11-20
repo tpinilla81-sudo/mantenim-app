@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useFetch } from '@/lib/use-fetch'
 import { toast } from 'sonner'
 import {
@@ -9,8 +9,6 @@ import {
   Clock,
   Gauge,
   CheckCircle2,
-  Plus,
-  Wrench,
   ChevronRight,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -23,7 +21,16 @@ import {
 } from '@/lib/constants'
 import { cn } from '@/lib/utils'
 
-type ViewKey = 'hoy' | 'clientes' | 'equipos' | 'contratos' | 'ordenes' | 'calendario' | 'sync' | 'revisiones'
+type ViewKey =
+  | 'hoy'
+  | 'clientes'
+  | 'equipos'
+  | 'contratos'
+  | 'ordenes'
+  | 'calendario'
+  | 'sync'
+  | 'revisiones'
+  | 'logicas'
 
 interface EquipoInfo {
   id: string
@@ -71,6 +78,12 @@ interface HoyData {
   equiposCercaUmbral: EquipoInfo[]
 }
 
+function formatMiles(n: number): string {
+  return Math.round(n)
+    .toString()
+    .replace(/\B(?=(\d{3})+(?!\d))/g, '.')
+}
+
 function KpiCard({
   label,
   value,
@@ -107,13 +120,18 @@ function KpiCard({
 }
 
 export function HoyView({ onNavigate }: { onNavigate: (v: ViewKey) => void }) {
+  const [mounted, setMounted] = useState(false)
   const [zonaSeleccionada, setZonaSeleccionada] = useState<string>('TODAS')
-  // Lista de zonas disponibles (hardcoded por ahora: las que vimos en BC + S1/S2/S3 comunes)
   const ZONAS_DISPONIBLES = ['TODAS', 'A10', 'B100', 'A20', 'VW', 'S1', 'S2', 'S3']
 
-  const url = zonaSeleccionada && zonaSeleccionada !== 'TODAS'
-    ? `/api/hoy?zona=${encodeURIComponent(zonaSeleccionada)}`
-    : '/api/hoy'
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  const url =
+    zonaSeleccionada && zonaSeleccionada !== 'TODAS'
+      ? `/api/hoy?zona=${encodeURIComponent(zonaSeleccionada)}`
+      : '/api/hoy'
   const { data, loading, error, refetch } = useFetch<HoyData>(url)
   const [completingId, setCompletingId] = useState<string | null>(null)
 
@@ -139,7 +157,7 @@ export function HoyView({ onNavigate }: { onNavigate: (v: ViewKey) => void }) {
     }
   }
 
-  if (loading) {
+  if (!mounted || loading) {
     return (
       <div className="p-4 lg:p-8 space-y-4">
         <div className="h-20 bg-muted/30 rounded animate-pulse" />
@@ -186,6 +204,7 @@ export function HoyView({ onNavigate }: { onNavigate: (v: ViewKey) => void }) {
           {ZONAS_DISPONIBLES.map((z) => (
             <button
               key={z}
+              type="button"
               onClick={() => setZonaSeleccionada(z)}
               className={cn(
                 'text-[11px] font-medium px-2.5 py-1 rounded-full border transition-colors',
@@ -284,7 +303,6 @@ export function HoyView({ onNavigate }: { onNavigate: (v: ViewKey) => void }) {
                 onNavigate={() => onNavigate('revisiones')}
               />
             ))}
-
           </CardContent>
         </Card>
       ) : (
@@ -293,7 +311,9 @@ export function HoyView({ onNavigate }: { onNavigate: (v: ViewKey) => void }) {
             <CheckCircle2 className="w-6 h-6 text-emerald-600" />
             <div>
               <p className="font-medium text-emerald-900">No hay nada pendiente para hoy</p>
-              <p className="text-[12px] text-emerald-700">Aprovecha para adelantar las vencidas o revisar las que están por llegar.</p>
+              <p className="text-[12px] text-emerald-700">
+                Aprovecha para adelantar las vencidas o revisar las que están por llegar.
+              </p>
             </div>
           </CardContent>
         </Card>
@@ -324,7 +344,7 @@ export function HoyView({ onNavigate }: { onNavigate: (v: ViewKey) => void }) {
                   numero={r.equipo.codigo}
                   titulo={`Revisión ${r.nivel === 'CONTRATO' ? 'por contrato' : '500h'}`}
                   descripcion={r.equipo.cliente?.nombre || 'Sin cliente'}
-                  meta={`${EQUIPO_TIPOS[r.equipo.tipo] || r.equipo.tipo} · ${r.equipo.marca} ${r.equipo.modelo}${r.horasObjetivo ? ` · ${r.equipo.horasUso.toLocaleString('es-ES')}/${r.horasObjetivo.toLocaleString('es-ES')} h` : ''}`}
+                  meta={`${EQUIPO_TIPOS[r.equipo.tipo] || r.equipo.tipo} · ${r.equipo.marca} ${r.equipo.modelo}${r.horasObjetivo ? ` · ${formatMiles(r.equipo.horasUso)}/${formatMiles(r.horasObjetivo)} h` : ''}`}
                   badge={<EstadoBadge estado={r.tipo} label={r.tipo === 'POR_CONTRATO' ? 'Por contrato' : 'Por horas'} />}
                   badgeRight={
                     <span className="text-[11px] text-muted-foreground tabular-nums">
@@ -368,7 +388,7 @@ export function HoyView({ onNavigate }: { onNavigate: (v: ViewKey) => void }) {
                   numero={r.equipo.codigo}
                   titulo={`Revisión ${r.nivel === 'CONTRATO' ? 'por contrato' : '500h'}`}
                   descripcion={r.equipo.cliente?.nombre || 'Sin cliente'}
-                  meta={`${EQUIPO_TIPOS[r.equipo.tipo] || r.equipo.tipo} · ${r.equipo.marca} ${r.equipo.modelo}${r.horasObjetivo ? ` · ${r.equipo.horasUso.toLocaleString('es-ES')}/${r.horasObjetivo.toLocaleString('es-ES')} h` : ''}`}
+                  meta={`${EQUIPO_TIPOS[r.equipo.tipo] || r.equipo.tipo} · ${r.equipo.marca} ${r.equipo.modelo}${r.horasObjetivo ? ` · ${formatMiles(r.equipo.horasUso)}/${formatMiles(r.horasObjetivo)} h` : ''}`}
                   badge={<EstadoBadge estado={r.tipo} label={r.tipo === 'POR_CONTRATO' ? 'Por contrato' : 'Por horas'} />}
                   badgeRight={
                     <span className="text-[11px] font-medium text-rose-700 tabular-nums">
@@ -385,7 +405,7 @@ export function HoyView({ onNavigate }: { onNavigate: (v: ViewKey) => void }) {
         </Card>
       )}
 
-      {/* Equipos cerca de umbral (por horas, ≤ 50h antes de siguiente revisión) */}
+      {/* Equipos cerca de umbral */}
       {data.equiposCercaUmbral.length > 0 && (
         <Card>
           <CardHeader className="pb-3 flex flex-row items-center justify-between">
@@ -404,7 +424,6 @@ export function HoyView({ onNavigate }: { onNavigate: (v: ViewKey) => void }) {
           <CardContent className="pt-0">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
               {data.equiposCercaUmbral.map((e) => {
-                // Calcular umbral para mostrar
                 const umbral = e.horasUso ? Math.ceil((e.horasUso + 1) / 250) * 250 : 250
                 const restantes = umbral - e.horasUso
                 return (
@@ -425,95 +444,9 @@ export function HoyView({ onNavigate }: { onNavigate: (v: ViewKey) => void }) {
                     </p>
                     <div className="mt-2">
                       <div className="flex items-center justify-between text-[10px] text-muted-foreground mb-0.5">
-                        <span className="tabular-nums">{e.horasUso.toLocaleString('es-ES')} h</span>
-                        <span className="tabular-nums">{umbral.toLocaleString('es-ES')} h</span>
+                        <span className="tabular-nums">{formatMiles(e.horasUso)} h</span>
+                        <span className="tabular-nums">{formatMiles(umbral)} h</span>
                       </div>
                       <div className="h-1.5 bg-muted rounded-full overflow-hidden">
                         <div
-                          className="h-full bg-amber-500 rounded-full"
-                          style={{ width: `${Math.max(0, Math.min(100, ((e.horasUso - (umbral - 250)) / 250) * 100))}%` }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Acciones rápidas */}
-      <Card>
-        <CardContent className="p-4 flex flex-wrap gap-2">
-
-          <Button variant="outline" onClick={() => onNavigate('revisiones')}>
-            <CalendarClock className="w-4 h-4 mr-1.5" />
-            Calendario de revisiones
-          </Button>
-          <Button variant="outline" onClick={() => onNavigate('calendario')}>
-            <CalendarClock className="w-4 h-4 mr-1.5" />
-            Calendario mensual OTs
-          </Button>
-          <Button variant="outline" onClick={() => onNavigate('equipos')}>
-            <Gauge className="w-4 h-4 mr-1.5" />
-            Equipos
-          </Button>
-        </CardContent>
-      </Card>
-    </div>
-  )
-}
-
-// Componente pendiente reutilizable
-function PendienteItem({
-  numero,
-  titulo,
-  descripcion,
-  meta,
-  badge,
-  badgeRight,
-  onMarkDone,
-  isMarking,
-  onNavigate,
-}: {
-  numero: string
-  titulo: string
-  descripcion: string
-  meta: string
-  badge: React.ReactNode
-  badgeRight: React.ReactNode
-  onMarkDone: (() => void) | null
-  isMarking: boolean
-  onNavigate: () => void
-}) {
-  return (
-    <div className="flex items-center gap-3 p-3 rounded-lg border border-border/60 hover:bg-muted/30 transition-colors">
-      <div className="flex-1 min-w-0 cursor-pointer" onClick={onNavigate}>
-        <div className="flex items-center gap-2 mb-0.5">
-          <span className="text-[12px] font-mono font-medium">{numero}</span>
-          {badge}
-          {badgeRight}
-        </div>
-        <p className="text-[13px] truncate">{titulo}</p>
-        <p className="text-[11px] text-muted-foreground truncate">{descripcion}</p>
-        <p className="text-[11px] text-muted-foreground truncate">{meta}</p>
-      </div>
-      {onMarkDone && (
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-8 shrink-0 text-[11px] border-emerald-300 text-emerald-700 hover:bg-emerald-50"
-          onClick={(e) => {
-            e.stopPropagation()
-            onMarkDone()
-          }}
-          disabled={isMarking}
-        >
-          <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
-          {isMarking ? 'Marcando...' : 'Hecho'}
-        </Button>
-      )}
-    </div>
-  )
-}
+                          className="h
