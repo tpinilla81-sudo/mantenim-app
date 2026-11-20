@@ -56,29 +56,35 @@ const NAV_ITEMS: NavItem[] = [
 ]
 
 export default function Home() {
-  const [activeView, setActiveView] = useState<ViewKey>(() => {
-    if (typeof window !== 'undefined') {
-      const hash = window.location.hash.replace('#', '') as ViewKey
-      if (hash && NAV_ITEMS.some((n) => n.key === hash)) {
-        return hash
-      }
-    }
-    return 'hoy'
-  })
+  const [activeView, setActiveView] = useState<ViewKey>('hoy')
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
+  // Leer el hash solo después de hidratar para evitar React error #418
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      window.location.hash = activeView
+    const syncFromHash = () => {
+      const hash = window.location.hash.replace('#', '') as ViewKey
+      if (hash && NAV_ITEMS.some((n) => n.key === hash)) {
+        setActiveView(hash)
+      }
     }
-  }, [activeView])
+    syncFromHash()
+    window.addEventListener('hashchange', syncFromHash)
+    return () => window.removeEventListener('hashchange', syncFromHash)
+  }, [])
 
-  const currentNav = NAV_ITEMS.find((n) => n.key === activeView)!
+  const handleSelectView = (view: ViewKey) => {
+    setActiveView(view)
+    if (typeof window !== 'undefined') {
+      window.location.hash = view
+    }
+  }
+
+  const currentNav = NAV_ITEMS.find((n) => n.key === activeView) || NAV_ITEMS[0]
 
   const renderView = () => {
     switch (activeView) {
       case 'hoy':
-        return <HoyView onNavigate={setActiveView} />
+        return <HoyView onNavigate={handleSelectView} />
       case 'logicas':
         return <LogicasView />
       case 'sync':
@@ -142,7 +148,7 @@ export default function Home() {
               <button
                 key={item.key}
                 onClick={() => {
-                  setActiveView(item.key)
+                  handleSelectView(item.key)
                   setSidebarOpen(false)
                 }}
                 className={cn(
