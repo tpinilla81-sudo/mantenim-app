@@ -118,8 +118,6 @@ export function SyncView() {
   const [revisionesAnualesFile, setRevisionesAnualesFile] = useState<File | null>(null);
   const [pedidosRegistradosFile, setPedidosRegistradosFile] = useState<File | null>(null);
   const [tareaServicioFile, setTareaServicioFile] = useState<File | null>(null);
-  const [extraFile1, setExtraFile1] = useState<File | null>(null);
-  const [extraFile2, setExtraFile2] = useState<File | null>(null);
 
   const dropRef = useRef<HTMLInputElement>(null);
   const prodRef = useRef<HTMLInputElement>(null);
@@ -127,8 +125,6 @@ export function SyncView() {
   const revAnualesRef = useRef<HTMLInputElement>(null);
   const pedidosRegRef = useRef<HTMLInputElement>(null);
   const tareaServRef = useRef<HTMLInputElement>(null);
-  const extra1Ref = useRef<HTMLInputElement>(null);
-  const extra2Ref = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -153,8 +149,6 @@ export function SyncView() {
     let nextRev = revisionesAnualesFile;
     let nextPed = pedidosRegistradosFile;
     let nextTarea = tareaServicioFile;
-    let nextExtra1 = extraFile1;
-    let nextExtra2 = extraFile2;
     const sinClasificar: File[] = [];
 
     Array.from(fileList).forEach((file) => {
@@ -192,8 +186,6 @@ export function SyncView() {
       else if (!nextRev) nextRev = file;
       else if (!nextPed) nextPed = file;
       else if (!nextTarea) nextTarea = file;
-      else if (!nextExtra1) nextExtra1 = file;
-      else if (!nextExtra2) nextExtra2 = file;
     });
 
     setProductosFile(nextProd);
@@ -201,8 +193,6 @@ export function SyncView() {
     setRevisionesAnualesFile(nextRev);
     setPedidosRegistradosFile(nextPed);
     setTareaServicioFile(nextTarea);
-    setExtraFile1(nextExtra1);
-    setExtraFile2(nextExtra2);
     setStatusMessage(null);
     setIsError(false);
   };
@@ -400,4 +390,133 @@ export function SyncView() {
       limpio === '0' ||
       limpio === '-' ||
       limpio === 'N/A' ||
-      limpio === 'SIN
+      limpio === 'SIN CONTRATO' ||
+      limpio === 'NULL' ||
+      limpio === 'UNDEFINED'
+    ) {
+      return false;
+    }
+    return true;
+  };
+
+  const handleProcesar = async () => {
+    if (!productosFile || !lineasContratoFile) {
+      setIsError(true);
+      setStatusMessage(
+        'Selecciona al menos Productos de Servicio y Lista Líneas de Contrato para sincronizar.'
+      );
+      return;
+    }
+
+    setLoading(true);
+    setStatusMessage(null);
+    setIsError(false);
+
+    try {
+      const [
+        productosExtraidos,
+        lineasRows,
+        revAnualesRows,
+        pedidosRegRows,
+        tareaServRows,
+      ] = await Promise.all([
+        leerProductosConColumnasFijas(productosFile),
+        leerExcel(lineasContratoFile),
+        revisionesAnualesFile ? leerExcel(revisionesAnualesFile) : Promise.resolve([]),
+        pedidosRegistradosFile ? leerExcel(pedidosRegistradosFile) : Promise.resolve([]),
+        tareaServicioFile ? leerExcel(tareaServicioFile) : Promise.resolve([]),
+      ]);
+
+      const todasRevAnuales = [...revAnualesRows];
+      const todosPedidosReg = [...pedidosRegRows];
+      const todasTareasServ = [...tareaServRows];
+
+      // 1. Mapa de contratos por Nº prod. servicio normalizado
+      const mapaContratos = new Map<
+        string,
+        { contrato: string; sucursal: string; clienteNombre: string }
+      >();
+
+      lineasRows.forEach((linea) => {
+        const idProdRaw = String(
+          buscarColumna(
+            linea,
+            ['Nº prod. servicio', 'Nº producto', 'Prod. servicio', 'Producto', 'Nº', 'No.', 'Código'],
+            ['GRUPO', 'TIPO']
+          )
+        ).trim();
+        const contrato = String(
+          buscarColumna(
+            linea,
+            ['Nº contrato', 'N. contrato', 'Contrato', 'Nº de contrato'],
+            ['GRUPO', 'TIPO']
+          )
+        ).trim();
+        const sucursal = String(
+          buscarColumna(linea, ['Sucursal', 'Cód. sucursal', 'Delegación', 'Centro'], ['GRUPO'])
+        ).trim();
+        const clienteNombre = String(
+          buscarColumna(linea, ['Nombre Cliente', 'Nombre', 'Cliente'])
+        )
+          .trim()
+          .toUpperCase();
+
+        const clave = normalizarId(idProdRaw);
+        if (clave && tieneValorValido(contrato)) {
+          if (!mapaContratos.has(clave)) {
+            mapaContratos.set(clave, { contrato, sucursal, clienteNombre });
+          }
+        }
+      });
+
+      // 2. Mapa de Nº REVISIONES ANUALES desde REVISIONES-ANUALES-CONTRATOS
+      const mapaRevisionesAnuales = new Map<string, number>();
+      const mapaContratoPorProdRev = new Map<string, string>();
+
+      todasRevAnuales.forEach((row) => {
+        const idProdRaw = buscarColumna(row, [
+          'Nº PRODUCTO SERVICIO',
+          'Nº prod. servicio',
+          'Nº Producto',
+          'Producto',
+        ]);
+        const contratoRev = String(
+          buscarColumna(row, ['Nº CONTRATO', 'Nº Contrato', 'Contrato'])
+        ).trim();
+        const revRaw = buscarColumna(row, [
+          'Nº REVISIONES ANUALES',
+          'Nº revisiones anuales',
+          'Revisiones anuales',
+          'Revisiones',
+        ]);
+
+        const clave = normalizarId(idProdRaw);
+        const revNum = Number(String(revRaw ?? '').replace(',', '.').trim());
+        if (clave && !isNaN(revNum) && revNum > 0) {
+          const prev = mapaRevisionesAnuales.get(clave);
+          if (!prev || revNum > prev) {
+            mapaRevisionesAnuales.set(clave, revNum);
+          }
+        }
+        if (clave && tieneValorValido(contratoRev) && !mapaContratoPorProdRev.has(clave)) {
+          mapaContratoPorProdRev.set(clave, contratoRev);
+        }
+      });
+
+      // 3. Procesar Pedidos Servicio Registrados
+      const ultimaFechaRegistrada = new Map<string, Date>();
+      const pedidosPorClienteRev = new Map<string, Date[]>();
+      const eventosPropios: Array<{
+        prodNorm: string;
+        fecha: Date;
+        horasDesc: number | null;
+      }> = [];
+
+      todosPedidosReg.forEach((ped) => {
+        const desc = String(buscarColumna(ped, ['Descripción', 'Descripcion'])).trim();
+        const tipo = String(
+          buscarColumna(ped, ['Tipo pedido servicio', 'Tipo Pedido Servicio', 'Tipo'])
+        )
+          .trim()
+          .toUpperCase();
+        const clienteNom = String(
