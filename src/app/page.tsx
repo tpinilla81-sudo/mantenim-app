@@ -59,7 +59,6 @@ export default function Home() {
   const [activeView, setActiveView] = useState<ViewKey>('hoy')
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
-  // Leer el hash solo después de hidratar para evitar React error #418
   useEffect(() => {
     const syncFromHash = () => {
       const hash = window.location.hash.replace('#', '') as ViewKey
@@ -98,7 +97,6 @@ export default function Home() {
 
   return (
     <div className="min-h-screen flex bg-background">
-      {/* Overlay móvil */}
       {sidebarOpen && (
         <div
           className="fixed inset-0 bg-black/30 z-30 lg:hidden"
@@ -107,7 +105,6 @@ export default function Home() {
         />
       )}
 
-      {/* Sidebar */}
       <aside
         className={cn(
           'fixed lg:sticky top-0 left-0 h-screen w-64 shrink-0 z-40 lg:z-auto',
@@ -116,7 +113,6 @@ export default function Home() {
           sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         )}
       >
-        {/* Marca */}
         <div className="flex items-center gap-2 px-5 h-16 border-b border-sidebar-border">
           <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary text-primary-foreground">
             <Sun className="w-4 h-4" />
@@ -136,7 +132,6 @@ export default function Home() {
           </button>
         </div>
 
-        {/* Navegación */}
         <nav className="flex-1 overflow-y-auto scrollbar-thin py-4 px-3 space-y-0.5">
           <p className="px-3 pb-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
             Módulos
@@ -171,7 +166,6 @@ export default function Home() {
           })}
         </nav>
 
-        {/* Footer */}
         <div className="border-t border-sidebar-border p-4">
           <div className="text-[11px] text-muted-foreground">
             <p>v1.0 · MVP</p>
@@ -180,9 +174,7 @@ export default function Home() {
         </div>
       </aside>
 
-      {/* Contenido principal */}
       <div className="flex-1 min-w-0 flex flex-col">
-        {/* Top bar */}
         <header className="sticky top-0 z-20 h-16 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
           <div className="flex items-center gap-4 px-4 lg:px-8 h-full">
             <button
@@ -203,7 +195,6 @@ export default function Home() {
           </div>
         </header>
 
-        {/* Render de la vista activa */}
         <main className="flex-1 min-w-0 overflow-x-hidden">{renderView()}</main>
       </div>
     </div>
